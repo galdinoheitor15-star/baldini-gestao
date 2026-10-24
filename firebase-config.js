@@ -1,12 +1,11 @@
 // ===== Configuração do Firebase =====
-// Cole aqui os dados do seu projeto (Console do Firebase > Configurações do projeto > Seus apps > Web).
-// Enquanto estiver vazio, o site e a gestão funcionam em "modo demonstração":
-// os pedidos ficam só neste navegador (bom para testar, não para usar na loja).
+// Projeto "baldini-burguer". Este arquivo precisa ser IGUAL no site (baldini-burguer) e na gestão (baldini-gestao).
+// Estes dados não são senha: o que protege os pedidos são as regras do Firestore (firestore.rules).
 window.BALDINI_FIREBASE = {
-  apiKey: '',
-  authDomain: '',
-  projectId: '',
-  storageBucket: '',
-  messagingSenderId: '',
-  appId: ''
+  apiKey: 'AIzaSyBHXtOCN2w5z2PuWLGLdX4I7AhE-Ic5k1g',
+  authDomain: 'baldini-burguer.firebaseapp.com',
+  projectId: 'baldini-burguer',
+  storageBucket: 'baldini-burguer.firebasestorage.app',
+  messagingSenderId: '605646245596',
+  appId: '1:605646245596:web:2db4fb6ea3e03889092e19'
 };
