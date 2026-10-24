@@ -421,9 +421,16 @@
     $('posEmpty').hidden = posCart.length > 0;
     $('posLines').innerHTML = posCart.map((l, i) => `<li><b>${l.qty}x ${esc(l.name)}</b><span>${brl(l.unit * l.qty)} <button type="button" class="link" data-rm="${i}" aria-label="Remover">✕</button></span>
       ${l.choices.map(c => `<small>${esc(c.group)}: ${esc(c.items.map(i2 => (i2.qty > 1 ? i2.qty + 'x ' : '') + i2.name).join(', '))}</small>`).join('')}${l.note ? `<small><i>${esc(l.note)}</i></small>` : ''}</li>`).join('');
-    $('posTotal').textContent = brl(posOrder().total);
+    const total = brl(posOrder().total);
+    $('posTotal').textContent = total;
+    $('posBar').hidden = !posCart.length;
+    const qty = posCart.reduce((s, l) => s + l.qty, 0);
+    $('posBarCount').textContent = qty;
+    $('posBarLabel').textContent = qty === 1 ? 'item' : 'itens';
+    $('posBarTotal').textContent = total;
     $('posAddr').hidden = $('posForm').elements.entrega.value !== 'Delivery';
   }
+  $('posBar').addEventListener('click', () => $('posForm').scrollIntoView({ block: 'start' }));
   $('posLines').addEventListener('click', e => { const b = e.target.closest('[data-rm]'); if (b) { posCart.splice(+b.dataset.rm, 1); renderPosCart(); } });
   $('posForm').addEventListener('input', renderPosCart);
   $('posForm').addEventListener('submit', async e => {

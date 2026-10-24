@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="gestao.css?v=20261023">
+  <link rel="stylesheet" href="gestao.css?v=20261024">
 </head>
 <body>
 
@@ -101,6 +101,7 @@
         <p class="error" id="posError" hidden></p>
         <button class="btn btn--yellow btn--block" type="submit">Lançar pedido</button>
       </form>
+      <button type="button" class="pos__bar" id="posBar" hidden><span>🧾 <b id="posBarCount">0</b> <span id="posBarLabel">itens</span> · Ver pedido</span><strong id="posBarTotal">R$ 0,00</strong></button>
     </div>
   </section>
 
@@ -225,11 +226,11 @@
 
 <!-- O cardápio vem do site de pedidos: mudou lá, muda aqui -->
 <script src="https://galdinoheitor15-star.github.io/baldini-burguer/menu-data.js"></script>
-<script src="baldini-core.js?v=20261023"></script>
-<script src="firebase-config.js?v=20261023"></script>
+<script src="baldini-core.js?v=20261024"></script>
+<script src="firebase-config.js?v=20261024"></script>
 <script>window.BALDINI_OFFLINE = true;</script>
-<script src="baldini-db.js?v=20261023"></script>
+<script src="baldini-db.js?v=20261024"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
-<script src="gestao.js?v=20261023" defer></script>
+<script src="gestao.js?v=20261024" defer></script>
 </body>
 </html>

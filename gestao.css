@@ -115,6 +115,9 @@ a { color: var(--yellow); }
 
 /* Lançar pedido */
 .pos { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; align-items: start; }
+/* Sem isso a fileira de categorias alarga a página no celular */
+.pos > *, .split > *, .view { min-width: 0; }
+.pos__bar { display: none; }
 .pos__cats { display: flex; gap: 6px; overflow-x: auto; margin: 10px 0; }
 .pos__cats button { flex: none; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 999px; padding: 6px 12px; font: 600 13px Inter, sans-serif; cursor: pointer; }
 .pos__cats button.is-on { background: var(--yellow); color: var(--wine-deep); }
@@ -194,4 +197,16 @@ a { color: var(--yellow); }
   .grid2, .grid3 { grid-template-columns: 1fr; }
   .top__brand span { display: none; }
   .map { height: 320px; }
+  .pos__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pos__cart { scroll-margin-top: 120px; }
+  #view-novo { padding-bottom: 90px; }
+  /* Barra fixa com o pedido sendo montado */
+  .pos__bar {
+    position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 30;
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    border: 0; border-radius: 14px; padding: 14px 18px; background: var(--yellow); color: var(--wine-deep);
+    font: 800 15px Inter, sans-serif; box-shadow: 0 10px 30px rgba(0, 0, 0, .5); cursor: pointer;
+  }
+  .pos__bar[hidden] { display: none; }
+  .toast { bottom: 88px; }
 }
