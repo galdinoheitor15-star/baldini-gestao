@@ -180,6 +180,18 @@
       if (isFb()) return fb.db.collection('config').doc(name).set(data);
       local.put('config', name, data, false);
     },
+    // Configuração ao vivo: mudou num aparelho, todos os outros recebem na hora
+    watchConfig(name, cb) {
+      let stop = () => {};
+      ready.then(() => {
+        if (isFb()) stop = fb.db.collection('config').doc(name).onSnapshot(d => cb(d.exists ? d.data() : {}), warn);
+        else {
+          let last;
+          stop = localWatch(() => { const v = local.col('config')[name] || {}; const s = JSON.stringify(v); if (s !== last) { last = s; cb(v); } });
+        }
+      });
+      return () => stop();
+    },
 
     // ----- Despesas -----
     async addExpense(d) {

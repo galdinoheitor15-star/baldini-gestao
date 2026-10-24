@@ -113,7 +113,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     $('modeBadge').textContent = DB.mode === 'firebase' ? `🟢 Online · ${user.nome || user.email}`: '🟡 Modo demonstração (configure o Firebase)';
     $('modeBadge').classList.toggle('is-warn', DB.mode !== 'firebase');
     $('soundBtn').classList.toggle('is-off', !state.sound);
-    loadConfig().then(() => { renderConfig(); renderCosts(); renderMsgs(); });
+    watchConfigs();
     const now = new Date();
     const since = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
     DB.watchOrders(since, list => { onOrders(list); }, e => toast('Sem conexão com os pedidos: ' + e.message, true));
@@ -128,9 +128,36 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     if (state.sound) beep();
   });
 
-  async function loadConfig() {
-    const [loja, custos, mensagens, nf] = await Promise.all(['loja', 'custos', 'mensagens', 'nf'].map(n => DB.getConfig(n).catch(() => ({}))));
-    state.cfg = { loja: loja || {}, custos: custos || {}, mensagens: mensagens || {}, nf: nf || {} };
+  // Configurações ao vivo: o que um aparelho salva aparece nos outros sem recarregar.
+  // Um formulário com mudanças ainda não salvas nunca é sobrescrito: só avisa e atualiza depois de salvar.
+  const FORM_RENDER = { configForm: () => renderConfig(), costList: () => renderCosts(), msgForm: () => renderMsgs() };
+  const dirtyForms = new Set(), pendingForms = new Set();
+  Object.keys(FORM_RENDER).forEach(id => $(id).addEventListener('input', () => dirtyForms.add(id)));
+  function refreshForm(id) {
+    if (!dirtyForms.has(id)) return FORM_RENDER[id]();
+    if (!pendingForms.has(id)) toast('Outro aparelho mudou estas configurações. Salve as suas para ver as novas.');
+    pendingForms.add(id);
+  }
+  // Depois de salvar, o formulário volta a acompanhar o que vem dos outros aparelhos
+  function formSaved(id) {
+    dirtyForms.delete(id);
+    if (pendingForms.delete(id)) FORM_RENDER[id]();
+  }
+  function watchConfigs() {
+    DB.watchConfig('loja', v => {
+      state.cfg.loja = v || {};
+      refreshForm('configForm');
+      autoAdvance();
+      scheduleRender();
+    });
+    DB.watchConfig('nf', v => {
+      state.cfg.nf = v || {};
+      refreshForm('configForm');
+      autoNf(state.orders);
+      scheduleRender();
+    });
+    DB.watchConfig('custos', v => { state.cfg.custos = v || {}; refreshForm('costList'); if (state.tab === 'lucro') renderProfit(); });
+    DB.watchConfig('mensagens', v => { state.cfg.mensagens = v || {}; refreshForm('msgForm'); });
   }
   const taxas = () => ({ ...Core.DEFAULT_TAXAS, ...(state.cfg.loja.taxas || {}) });
 
@@ -672,7 +699,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   $('saveCosts').addEventListener('click', () => {
     const custos = {};
     $('costList').querySelectorAll('[data-cost]').forEach(i => { const v = num(i.value); if (v > 0) custos[i.dataset.cost] = v; });
-    safe('Erro ao salvar custos', async () => { await DB.setConfig('custos', custos); state.cfg.custos = custos; toast('Custos salvos ✅'); renderProfit(); });
+    safe('Erro ao salvar custos', async () => { await DB.setConfig('custos', custos); state.cfg.custos = custos; toast('Custos salvos ✅'); formSaved('costList'); renderProfit(); });
   });
 
   // ---------- Bot e mensagens ----------
@@ -683,7 +710,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   $('saveMsgs').addEventListener('click', () => {
     const data = {};
     [...$('msgForm').elements].forEach(t => { if (t.name) data[t.name] = t.value.trim(); });
-    safe('Erro ao salvar mensagens', async () => { await DB.setConfig('mensagens', data); state.cfg.mensagens = data; toast('Mensagens salvas ✅'); });
+    safe('Erro ao salvar mensagens', async () => { await DB.setConfig('mensagens', data); state.cfg.mensagens = data; toast('Mensagens salvas ✅'); formSaved('msgForm'); });
   });
   $('botTest').addEventListener('submit', e => {
     e.preventDefault();
@@ -723,7 +750,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     safe('Erro ao salvar', async () => {
       await Promise.all([DB.setConfig('loja', loja), DB.setConfig('nf', nf)]);
       state.cfg.loja = loja; state.cfg.nf = nf;
-      toast('Configurações salvas ✅');
+      toast('Configurações salvas ✅'); formSaved('configForm');
       autoNf(state.orders);
       autoAdvance();
       renderBoard();
