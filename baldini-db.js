@@ -7,10 +7,14 @@
   const useFirebase = !!(cfg.apiKey && cfg.projectId);
   const warn = (...a) => console.warn('[BaldiniDB]', ...a);
 
+  const loaded = new Set();
   function loadScript(src) {
+    if (loaded.has(src)) return Promise.resolve();
     return new Promise((ok, fail) => {
       const s = document.createElement('script');
-      s.src = src; s.async = false; s.onload = ok; s.onerror = () => fail(new Error('Falha ao carregar ' + src));
+      s.src = src; s.async = false;
+      s.onload = () => { loaded.add(src); ok(); };
+      s.onerror = () => { s.remove(); fail(new Error('Falha ao carregar ' + src)); };
       document.head.appendChild(s);
     });
   }
@@ -36,30 +40,61 @@
   function localWatch(fn) { listeners.add(fn); fn(); return () => listeners.delete(fn); }
 
   // ---------- Firebase ----------
+  // Com o Firebase configurado, NUNCA cai para o modo local: tenta de novo até conseguir.
+  // (Antes, internet lenta no celular fazia a gestão mostrar só os pedidos guardados no aparelho.)
   let fb = null;
+  const statusListeners = new Set();
+  const conn = { conectando: useFirebase, tentativas: 0 };
+  const emitStatus = () => statusListeners.forEach(fn => { try { fn({ ...conn }); } catch (e) { warn(e); } });
   const ready = (async () => {
     if (!useFirebase) return 'local';
-    try {
-      await withTimeout(Promise.all([
-        loadScript(SDK + 'firebase-app-compat.js')
-      ]), 8000, 'Firebase');
-      await withTimeout(Promise.all([
-        loadScript(SDK + 'firebase-firestore-compat.js'),
-        loadScript(SDK + 'firebase-auth-compat.js'),
-        loadScript(SDK + 'firebase-functions-compat.js')
-      ]), 8000, 'Firebase');
-      const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(cfg);
-      fb = { app, db: app.firestore(), auth: app.auth(), fn: app.functions('southamerica-east1') };
-      if (window.BALDINI_OFFLINE) fb.db.enablePersistence({ synchronizeTabs: true }).catch(e => warn('cache offline:', e.code));
-      return 'firebase';
-    } catch (e) {
-      warn('Firebase indisponível, usando modo local.', e);
-      fb = null;
-      return 'local';
+    for (let i = 0; ; i++) {
+      try {
+        await withTimeout(loadScript(SDK + 'firebase-app-compat.js'), 20000, 'Firebase');
+        await withTimeout(Promise.all([
+          loadScript(SDK + 'firebase-firestore-compat.js'),
+          loadScript(SDK + 'firebase-auth-compat.js'),
+          loadScript(SDK + 'firebase-functions-compat.js')
+        ]), 20000, 'Firebase');
+        break;
+      } catch (e) {
+        conn.tentativas = i + 1; emitStatus();
+        warn('Firebase não carregou, tentando de novo...', e);
+        await new Promise(r => setTimeout(r, Math.min(30000, 3000 * 2 ** i)));
+      }
     }
+    const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(cfg);
+    fb = { app, db: app.firestore(), auth: app.auth(), fn: app.functions('southamerica-east1') };
+    if (window.BALDINI_OFFLINE) fb.db.enablePersistence({ synchronizeTabs: true }).catch(e => warn('cache offline:', e.code));
+    conn.conectando = false; emitStatus();
+    flushOutbox();
+    return 'firebase';
   })();
   const isFb = () => !!fb;
   const docs = snap => snap.docs.map(d => ({ ...d.data(), id: d.id }));
+
+  // ---------- Fila de pedidos (site) ----------
+  // O pedido fica guardado no aparelho até o banco confirmar. Se a internet cair, vai na próxima vez.
+  const OKEY = 'baldini-fila';
+  const outbox = {
+    read() { try { return JSON.parse(localStorage.getItem(OKEY)) || {}; } catch { return {}; } },
+    write(o) { try { localStorage.setItem(OKEY, JSON.stringify(o)); } catch { /* sem armazenamento */ } },
+    add(order) { const o = this.read(); o[order.id] = { order, em: Date.now() }; this.write(o); },
+    drop(id) { const o = this.read(); delete o[id]; this.write(o); }
+  };
+  // Erros que não adianta repetir (ex.: a loja já aceitou o pedido e o rascunho velho não pode mais mudar)
+  const finalError = e => ['permission-denied', 'invalid-argument', 'not-found', 'failed-precondition'].includes(e?.code);
+  async function sendOrder(order) {
+    try { await fb.db.collection('pedidos').doc(order.id).set(order, { merge: true }); outbox.drop(order.id); }
+    catch (e) { if (finalError(e)) outbox.drop(order.id); throw e; }
+  }
+  function flushOutbox() {
+    const limite = Date.now() - 2 * 864e5;
+    Object.entries(outbox.read()).forEach(([id, { order, em }]) => {
+      if (!order || em < limite) return outbox.drop(id);
+      sendOrder(order).catch(e => warn('Pedido da fila não enviado', id, e.code || e));
+    });
+  }
 
   const api = {
     ready,
@@ -67,10 +102,13 @@
 
     // ----- Pedidos -----
     async saveOrder(order) {
+      if (useFirebase) outbox.add(order);
       await ready;
-      if (isFb()) return fb.db.collection('pedidos').doc(order.id).set(order, { merge: true });
+      if (isFb()) return sendOrder(order);
       local.put('pedidos', order.id, order, true);
     },
+    // Situação da conexão: { conectando, tentativas }
+    onStatus(cb) { statusListeners.add(cb); cb({ ...conn }); return () => statusListeners.delete(cb); },
     async updateOrder(id, patch) {
       await ready;
       patch = { ...patch, atualizadoEm: Date.now() };
@@ -139,17 +177,37 @@
       return local.col('pedidos')[id] || null;
     },
     // Pedidos a partir de uma data (ms), mais novos primeiro
+    // cb(lista, { aoVivo, em }): aoVivo=false quando a lista veio do cache do aparelho (sem conexão)
     watchOrders(since, cb, onError = warn) {
       let stop = () => {};
-      ready.then(() => {
+      let last = { aoVivo: false, em: 0 };
+      // Escuta que já deu erro não pode ser desligada de novo (o Firebase quebra), por isso o try
+      const safeStop = () => { const s = stop; stop = () => {}; try { s(); } catch (e) { warn('escuta', e); } };
+      const subscribe = () => {
+        safeStop();
         if (isFb()) {
           stop = fb.db.collection('pedidos').where('criadoEm', '>=', since).orderBy('criadoEm', 'desc').limit(1500)
-            .onSnapshot(s => cb(docs(s)), onError);
+            .onSnapshot({ includeMetadataChanges: true }, s => {
+              last = { aoVivo: !s.metadata.fromCache, em: Date.now() };
+              cb(docs(s), last);
+            }, e => { stop = () => {}; last = { aoVivo: false, em: last.em }; onError(e); });
         } else {
-          stop = localWatch(() => cb(Object.values(local.col('pedidos')).filter(o => o.criadoEm >= since).sort((a, b) => b.criadoEm - a.criadoEm)));
+          stop = localWatch(() => cb(Object.values(local.col('pedidos')).filter(o => o.criadoEm >= since).sort((a, b) => b.criadoEm - a.criadoEm), { aoVivo: true, em: Date.now() }));
         }
+      };
+      // Celular em segundo plano perde a conexão: ao voltar para a tela, busca tudo de novo no banco
+      // Vários avisos juntos (voltou para a tela + internet voltou) viram uma busca só
+      let resyncTimer;
+      const resync = () => { clearTimeout(resyncTimer); resyncTimer = setTimeout(() => { if (isFb()) subscribe(); }, 800); };
+      const onVisible = () => { if (document.visibilityState === 'visible') resync(); };
+      const timer = setInterval(() => { if (!last.aoVivo) resync(); }, 30000);
+      ready.then(() => {
+        subscribe();
+        document.addEventListener('visibilitychange', onVisible);
+        window.addEventListener('online', resync);
       });
-      return () => stop();
+      api.resync = resync;
+      return () => { safeStop(); clearInterval(timer); clearTimeout(resyncTimer); document.removeEventListener('visibilitychange', onVisible); window.removeEventListener('online', resync); };
     },
     // Pedidos de teste de qualquer data (nome do cliente começando com "TESTE")
     async findTestOrders() {

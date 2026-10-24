@@ -63,7 +63,12 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   }
 
   // ---------- Login ----------
-  function show(screen) { ['login', 'pending', 'app'].forEach(id => { $(id).hidden = id !== screen; }); }
+  function show(screen) { ['connecting', 'login', 'pending', 'app'].forEach(id => { $(id).hidden = id !== screen; }); }
+  // Enquanto o banco não carrega, mostra "Conectando" (nunca os pedidos guardados só no aparelho)
+  DB.onStatus(s => {
+    if (!s.conectando) return;
+    $('connectingInfo').textContent = s.tentativas ? `Internet lenta. Tentando de novo (${s.tentativas}ª vez)...` : 'Carregando os pedidos...';
+  });
   let current = null;
   async function checkAccess(user) {
     current = user;
@@ -110,13 +115,14 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   let started = false;
   function start(user) {
     if (started) return; started = true;
-    $('modeBadge').textContent = DB.mode === 'firebase' ? `🟢 Online · ${user.nome || user.email}`: '🟡 Modo demonstração (configure o Firebase)';
-    $('modeBadge').classList.toggle('is-warn', DB.mode !== 'firebase');
+    state.user = user;
+    setBadge(DB.mode === 'firebase' ? null : { aoVivo: true, em: Date.now() });
     $('soundBtn').classList.toggle('is-off', !state.sound);
     watchConfigs();
     const now = new Date();
     const since = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
-    DB.watchOrders(since, list => { onOrders(list); }, e => toast('Sem conexão com os pedidos: ' + e.message, true));
+    DB.watchOrders(since, (list, meta) => { setBadge(meta); onOrders(list); }, e => toast('Sem conexão com os pedidos: ' + e.message, true));
+    setInterval(() => setBadge(state.sync), 15000);
     DB.watchExpenses(list => { state.expenses = list; if (state.tab === 'lucro') renderProfit(); });
     renderPos();
     setInterval(() => { if (state.tab === 'pedidos') renderBoard(); }, 30000);
@@ -176,6 +182,24 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     if (state.tab === 'lucro') renderProfit();
     if (state.tab === 'nf') renderNf();
   }
+
+  // ---------- Selo de sincronização (celular e computador veem a mesma lista) ----------
+  function setBadge(meta) {
+    state.sync = meta;
+    const b = $('modeBadge');
+    const quem = state.user?.nome || state.user?.email || '';
+    if (DB.mode !== 'firebase') { b.textContent = '🟡 Modo demonstração (configure o Firebase)'; b.className = 'pill is-warn'; return; }
+    if (!meta) { b.textContent = '⏳ Conectando...'; b.className = 'pill is-warn'; return; }
+    const hora = new Date(meta.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    if (meta.aoVivo) { b.textContent = `🟢 Ao vivo · ${quem}`; b.title = 'Atualizado ' + hora; b.className = 'pill'; }
+    else { b.textContent = `🟠 Sem conexão · última ${hora}`; b.title = 'Mostrando os pedidos que já tinham chegado. Atualiza sozinho quando a internet voltar.'; b.className = 'pill is-warn'; }
+  }
+  $('syncBtn').addEventListener('click', () => {
+    $('syncBtn').classList.add('is-spin');
+    setTimeout(() => $('syncBtn').classList.remove('is-spin'), 800);
+    if (DB.resync) DB.resync();
+    toast('Buscando os pedidos no banco...');
+  });
 
   // ---------- Pedidos ao vivo ----------
   function onOrders(list) {
@@ -490,10 +514,13 @@ document.addEventListener('gesturestart', e => e.preventDefault());
       (cfg.emissor === 'focus' && DB.mode !== 'firebase' ? ' ⚠️ O Focus NFe precisa do Firebase.' : '') +
       (cfg.emissor === 'simulacao' ? ' <br><small class="muted">Para notas de verdade: crie a conta na Focus NFe, publique a função do Firebase e troque o emissor em Configurações.</small>' : '');
     const list = state.orders.filter(Core.countsAsSale).slice(0, 120);
-    $('nfList').innerHTML = `<table class="table"><thead><tr><th>Pedido</th><th>Cliente</th><th>Pagamento</th><th>Total</th><th>Nota</th><th></th></tr></thead><tbody>
-      ${list.map(o => `<tr><td>${esc(Core.shortCode(o.id))} <small class="muted">${hhmm(o.criadoEm)} ${new Date(o.criadoEm).toLocaleDateString('pt-BR')}</small></td><td>${esc(o.cliente?.nome || '—')}</td><td>${esc(o.pagamento?.metodo || o.pagamento?.forma || '')}</td><td>${brl(o.total)}</td>
-        <td>${o.nf?.url ? `<a href="${esc(o.nf.url)}" target="_blank" rel="noopener">${nfLabel(o.nf)}</a>` : `<span title="${esc(o.nf?.erro || '')}">${nfLabel(o.nf)}</span>`}</td>
-        <td>${o.nf?.payload ? `<button type="button" class="btn btn--sm btn--ghost" data-nfview="${esc(o.id)}">Ver</button>` : ''}${!o.nf?.status || o.nf.status === 'erro' ? `<button type="button" class="btn btn--sm btn--ghost" data-nf="${esc(o.id)}">Emitir</button>` : ''}</td></tr>`).join('')}
+    $('nfList').innerHTML = list.length ? '' : '<p class="muted small">Nenhum pedido ainda.</p>';
+    if (!list.length) return;
+    // No celular cada linha vira um cartão (rótulos em data-label, ver .table--cards no CSS)
+    $('nfList').innerHTML = `<table class="table table--cards"><thead><tr><th>Pedido</th><th>Cliente</th><th>Pagamento</th><th>Total</th><th>Nota</th><th></th></tr></thead><tbody>
+      ${list.map(o => `<tr><td class="tc-head"><b>${esc(Core.shortCode(o.id))}</b> <small class="muted">${hhmm(o.criadoEm)} · ${new Date(o.criadoEm).toLocaleDateString('pt-BR')}</small></td><td data-label="Cliente">${esc(o.cliente?.nome || '—')}</td><td data-label="Pagamento">${esc(o.pagamento?.metodo || o.pagamento?.forma || '—')}</td><td data-label="Total"><b>${brl(o.total)}</b></td>
+        <td data-label="Nota">${o.nf?.url ? `<a href="${esc(o.nf.url)}" target="_blank" rel="noopener">${nfLabel(o.nf)}</a>` : `<span title="${esc(o.nf?.erro || '')}">${nfLabel(o.nf)}</span>`}${o.nf?.erro ? `<small class="tc-err">${esc(o.nf.erro)}</small>` : ''}</td>
+        <td class="tc-acts">${o.nf?.payload ? `<button type="button" class="btn btn--sm btn--ghost" data-nfview="${esc(o.id)}">Ver</button>` : ''}${!o.nf?.status || o.nf.status === 'erro' ? `<button type="button" class="btn btn--sm btn--ghost" data-nf="${esc(o.id)}">Emitir</button>` : ''}</td></tr>`).join('')}
     </tbody></table>`;
   }
   $('nfList').addEventListener('click', e => {

@@ -11,11 +11,21 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="gestao.css?v=20261024g">
+  <link rel="stylesheet" href="gestao.css?v=20261024i">
 </head>
 <body>
 
 <!-- ===== LOGIN ===== -->
+<!-- ===== CONECTANDO (antes de o banco responder) ===== -->
+<main class="login" id="connecting">
+  <div class="login__box">
+    <img src="img/logo.jpg" alt="" width="72" height="72">
+    <h1>Gestão Baldini</h1>
+    <p class="spinner" aria-hidden="true"></p>
+    <p id="connectingInfo">Carregando os pedidos...</p>
+  </div>
+</main>
+
 <main class="login" id="login" hidden>
   <form class="login__box" id="loginForm">
     <img src="img/logo.jpg" alt="" width="72" height="72">
@@ -56,6 +66,7 @@
     <a class="top__brand" href="./"><img src="img/logo.jpg" alt="" width="40" height="40"><span>Gestão <b>Baldini</b></span></a>
     <span class="pill" id="modeBadge"></span>
     <div class="top__right">
+      <button type="button" class="icon-btn" id="syncBtn" title="Atualizar pedidos agora" aria-label="Atualizar pedidos agora">🔄</button>
       <button type="button" class="icon-btn" id="soundBtn" title="Som de novo pedido">🔔</button>
       <a class="icon-btn" href="https://galdinoheitor15-star.github.io/baldini-burguer/" target="_blank" rel="noopener" title="Abrir o site de pedidos">🌐</a>
       <button type="button" class="icon-btn" id="logoutBtn" title="Sair">⎋</button>
@@ -270,11 +281,11 @@
 
 <!-- O cardápio vem do site de pedidos: mudou lá, muda aqui -->
 <script src="https://galdinoheitor15-star.github.io/baldini-burguer/menu-data.js"></script>
-<script src="baldini-core.js?v=20261024g"></script>
-<script src="firebase-config.js?v=20261024g"></script>
+<script src="baldini-core.js?v=20261024i"></script>
+<script src="firebase-config.js?v=20261024i"></script>
 <script>window.BALDINI_OFFLINE = true;</script>
-<script src="baldini-db.js?v=20261024g"></script>
+<script src="baldini-db.js?v=20261024i"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
-<script src="gestao.js?v=20261024g" defer></script>
+<script src="gestao.js?v=20261024i" defer></script>
 </body>
 </html>

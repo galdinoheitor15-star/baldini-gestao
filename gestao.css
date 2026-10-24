@@ -254,3 +254,35 @@ body:has(dialog[open]) { overflow: hidden; }
 .danfe .table th, .danfe .table td { border-color: #ddd; color: #111; }
 .danfe .muted { color: #666; }
 .danfe p { margin: 8px 0; }
+
+/* Conectando e atualizar */
+.spinner { justify-self: center; width: 34px; height: 34px; margin: 10px auto; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--yellow); animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#syncBtn.is-spin { animation: spin .8s linear; }
+.tc-err { display: block; color: var(--bad); font-size: 12px; margin-top: 2px; }
+.tc-acts .btn + .btn { margin-left: 6px; }
+
+/* Nota fiscal no celular: cada pedido vira um cartão */
+@media (max-width: 640px) {
+  #view-nf .card { padding: 12px; }
+  #nfState { line-height: 1.5; }
+  .table--cards, .table--cards tbody { display: block; width: 100%; }
+  .table--cards thead { display: none; }
+  .table--cards tr {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px;
+    padding: 12px; margin-bottom: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2);
+  }
+  .table--cards td { display: block; padding: 0; border: 0; min-width: 0; overflow-wrap: anywhere; }
+  .table--cards td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .table--cards .tc-head { grid-column: 1 / -1; font-size: 15px; }
+  .table--cards .tc-acts { grid-column: 1 / -1; display: flex; gap: 8px; }
+  .table--cards .tc-acts:empty { display: none; }
+  .table--cards .tc-acts .btn { flex: 1; margin: 0; }
+  /* Prévia da nota (DANFE) cabendo na tela */
+  .danfe { padding: 12px; font-size: 12px; overflow-wrap: anywhere; }
+  .danfe .table { table-layout: fixed; }
+  .danfe .table th:first-child, .danfe .table td:first-child { width: 42%; }
+  .danfe .table th:nth-child(2), .danfe .table td:nth-child(2) { width: 12%; }
+  .danfe .table th:not(:first-child), .danfe .table td:not(:first-child) { white-space: nowrap; overflow-wrap: normal; font-size: 11.5px; }
+  .danfe .table th, .danfe .table td { padding: 6px 4px; }
+}
