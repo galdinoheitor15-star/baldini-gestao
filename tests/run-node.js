@@ -38,7 +38,7 @@ const spec = require(path.join(__dirname, 'spec.js'));
     name: 'gestão carrega os scripts certos',
     fn: () => {
       const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-      [...html.matchAll(/src="([^"]+\.js)"/g)].map(m => m[1]).filter(s => !/^https?:/.test(s))
+      [...html.matchAll(/src="([^"?]+\.js)(\?[^"]*)?"/g)].map(m => m[1]).filter(s => !/^https?:/.test(s))
         .forEach(s => { if (!fs.existsSync(path.join(root, s))) throw new Error('script não existe: ' + s); });
       if (!html.includes(SITE + 'menu-data.js')) throw new Error('gestão não puxa o cardápio do site');
     }
