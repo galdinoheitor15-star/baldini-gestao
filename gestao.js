@@ -61,24 +61,54 @@
   }
 
   // ---------- Login ----------
-  DB.onAuth(user => {
-    $('login').hidden = !!user;
-    $('app').hidden = !user;
-    if (user) start(user);
+  function show(screen) { ['login', 'pending', 'app'].forEach(id => { $(id).hidden = id !== screen; }); }
+  let current = null;
+  async function checkAccess(user) {
+    current = user;
+    if (!user) return show('login');
+    if (user.staff || await DB.isStaff(user.uid)) { show('app'); return start(user); }
+    $('pendingEmail').textContent = user.email || user.nome;
+    $('pendingUid').textContent = user.uid;
+    show('pending');
+  }
+  DB.onAuth(checkAccess);
+  function loginError(err) {
+    console.warn(err);
+    const msg = {
+      'auth/unauthorized-domain': 'Este endereço ainda não foi autorizado no Firebase (Authentication > Configurações > Domínios autorizados).',
+      'auth/operation-not-allowed': 'Este tipo de login ainda não foi ativado no Firebase (Authentication > Método de login).',
+      'auth/popup-closed-by-user': 'A janela do Google foi fechada antes de terminar.',
+      'auth/popup-blocked': 'O navegador bloqueou a janela do Google. Permita pop-ups para este site (ícone na barra de endereço) e toque de novo.',
+      'auth/operation-not-supported-in-this-environment': 'Este navegador não abre o login do Google. Abra a gestão no Chrome ou no Safari.',
+      'auth/invalid-credential': 'E-mail ou senha incorretos.',
+      'auth/wrong-password': 'E-mail ou senha incorretos.',
+      'auth/user-not-found': 'E-mail ou senha incorretos.'
+    }[err.code] || 'Não foi possível entrar. Tente de novo.';
+    $('loginError').textContent = msg;
+    $('loginError').hidden = false;
+  }
+  $('googleBtn').addEventListener('click', async () => {
+    $('loginError').hidden = true;
+    try { await DB.signInGoogle(); } catch (err) { if (err.code !== 'auth/cancelled-popup-request') loginError(err); }
   });
   $('loginForm').addEventListener('submit', async e => {
     e.preventDefault();
     const f = e.target.elements;
     $('loginError').hidden = true;
-    try { await DB.signIn(f.email.value.trim(), f.senha.value); }
-    catch (err) { $('loginError').textContent = 'Não foi possível entrar: confira e-mail e senha.'; $('loginError').hidden = false; console.warn(err); }
+    if (!f.email.value.trim() || !f.senha.value) return;
+    try { await DB.signIn(f.email.value.trim(), f.senha.value); } catch (err) { loginError(err); }
   });
+  $('copyUid').addEventListener('click', () => {
+    navigator.clipboard?.writeText($('pendingUid').textContent).then(() => toast('Código copiado ✅'), () => toast('Selecione e copie o código', true));
+  });
+  $('pendingRetry').addEventListener('click', () => checkAccess(current));
+  $('pendingOut').addEventListener('click', () => DB.signOut());
   $('logoutBtn').addEventListener('click', () => DB.signOut().then(() => location.reload()));
 
   let started = false;
   function start(user) {
     if (started) return; started = true;
-    $('modeBadge').textContent = DB.mode === 'firebase' ? `🟢 Online · ${user.email}` : '🟡 Modo demonstração (configure o Firebase)';
+    $('modeBadge').textContent = DB.mode === 'firebase' ? `🟢 Online · ${user.nome || user.email}`: '🟡 Modo demonstração (configure o Firebase)';
     $('modeBadge').classList.toggle('is-warn', DB.mode !== 'firebase');
     $('soundBtn').classList.toggle('is-off', !state.sound);
     loadConfig().then(() => { renderConfig(); renderCosts(); renderMsgs(); });

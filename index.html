@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="gestao.css?v=20261024b">
+  <link rel="stylesheet" href="gestao.css?v=20261024c">
 </head>
 <body>
 
@@ -20,13 +20,34 @@
   <form class="login__box" id="loginForm">
     <img src="img/logo.jpg" alt="" width="72" height="72">
     <h1>Gestão Baldini</h1>
-    <p>Entre com o e-mail da equipe.</p>
-    <label class="field">E-mail<input type="email" name="email" autocomplete="username" required></label>
-    <label class="field">Senha<input type="password" name="senha" autocomplete="current-password" required></label>
+    <p>Área exclusiva da equipe.</p>
+    <button class="btn btn--google btn--block" type="button" id="googleBtn">
+      <svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
+      Entrar com Google
+    </button>
+    <details class="login__alt">
+      <summary>Entrar com e-mail e senha</summary>
+      <label class="field">E-mail<input type="email" name="email" autocomplete="username"></label>
+      <label class="field">Senha<input type="password" name="senha" autocomplete="current-password"></label>
+      <button class="btn btn--ghost btn--block" type="submit">Entrar</button>
+    </details>
     <p class="error" id="loginError" hidden></p>
-    <button class="btn btn--yellow btn--block" type="submit">Entrar</button>
     <a class="link" href="https://galdinoheitor15-star.github.io/baldini-burguer/">← Voltar ao site</a>
   </form>
+</main>
+
+<!-- ===== ACESSO AINDA NÃO LIBERADO ===== -->
+<main class="login" id="pending" hidden>
+  <div class="login__box">
+    <img src="img/logo.jpg" alt="" width="72" height="72">
+    <h1>Quase lá</h1>
+    <p>Você entrou como <b id="pendingEmail"></b>, mas seu acesso à gestão ainda não foi liberado.</p>
+    <p class="muted small">Mande este código para o dono da loja:</p>
+    <code class="uid" id="pendingUid"></code>
+    <button class="btn btn--yellow btn--block" type="button" id="copyUid">Copiar código</button>
+    <button class="btn btn--ghost btn--block" type="button" id="pendingRetry">Já liberaram, tentar de novo</button>
+    <button class="link" type="button" id="pendingOut">Sair e usar outra conta</button>
+  </div>
 </main>
 
 <!-- ===== APP ===== -->
@@ -226,11 +247,11 @@
 
 <!-- O cardápio vem do site de pedidos: mudou lá, muda aqui -->
 <script src="https://galdinoheitor15-star.github.io/baldini-burguer/menu-data.js"></script>
-<script src="baldini-core.js?v=20261024b"></script>
-<script src="firebase-config.js?v=20261024b"></script>
+<script src="baldini-core.js?v=20261024c"></script>
+<script src="firebase-config.js?v=20261024c"></script>
 <script>window.BALDINI_OFFLINE = true;</script>
-<script src="baldini-db.js?v=20261024b"></script>
+<script src="baldini-db.js?v=20261024c"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
-<script src="gestao.js?v=20261024b" defer></script>
+<script src="gestao.js?v=20261024c" defer></script>
 </body>
 </html>

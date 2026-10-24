@@ -153,11 +153,25 @@
     // ----- Login da equipe -----
     onAuth(cb) {
       ready.then(() => {
-        if (isFb()) fb.auth.onAuthStateChanged(u => cb(u ? { email: u.email } : null));
-        else cb({ email: 'modo demonstração', demo: true });
+        if (isFb()) fb.auth.onAuthStateChanged(u => cb(u ? { email: u.email, nome: u.displayName || '', uid: u.uid } : null));
+        else cb({ email: 'modo demonstração', demo: true, staff: true });
       });
     },
+    // Só quem tem documento em /equipe/{uid} vê os pedidos
+    async isStaff(uid) {
+      await ready;
+      if (!isFb()) return true;
+      try { return (await fb.db.collection('equipe').doc(uid).get()).exists; } catch { return false; }
+    },
     async signIn(email, pass) { await ready; if (isFb()) return fb.auth.signInWithEmailAndPassword(email, pass); },
+    async signInGoogle() {
+      await ready;
+      if (!isFb()) return;
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      // Só janela (popup): o login por redirecionamento não funciona em site do GitHub Pages
+      return fb.auth.signInWithPopup(provider);
+    },
     async signOut() { await ready; if (isFb()) return fb.auth.signOut(); },
 
     // ----- Funções no servidor (nota fiscal, iFood) -----
