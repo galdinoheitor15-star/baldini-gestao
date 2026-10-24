@@ -43,6 +43,22 @@ exports.emitirNfce = onCall({ secrets: [FOCUS_TOKEN] }, async req => {
   return nf;
 });
 
+// Cancela a NFC-e (a SEFAZ aceita até 30 minutos depois da autorização)
+exports.cancelarNfce = onCall({ secrets: [FOCUS_TOKEN] }, async req => {
+  await requireStaff(req.auth);
+  const { pedidoId, justificativa } = req.data || {};
+  if (!pedidoId) throw new HttpsError('invalid-argument', 'Falta o pedido.');
+  const base = FOCUS_AMBIENTE.value() === 'producao' ? 'https://api.focusnfe.com.br' : 'https://homologacao.focusnfe.com.br';
+  const res = await fetch(`${base}/v2/nfce/${encodeURIComponent(pedidoId)}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Basic ' + Buffer.from(FOCUS_TOKEN.value() + ':').toString('base64') },
+    body: JSON.stringify({ justificativa: String(justificativa || 'Pedido cancelado').padEnd(15, '.').slice(0, 255) })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !['cancelado'].includes(data.status)) throw new HttpsError('failed-precondition', data.mensagem || data.mensagem_sefaz || `Focus NFe respondeu ${res.status}`);
+  return { status: 'cancelado' };
+});
+
 // ---------- InfinitePay: pagamento aprovado ----------
 exports.infinitepayWebhook = onRequest(async (req, res) => {
   try {

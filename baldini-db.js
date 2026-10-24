@@ -85,6 +85,25 @@
       });
       local.put('pedidos', id, cur, false);
     },
+    // Reserva a emissão da nota de um pedido. Com a gestão aberta em vários aparelhos, só um emite.
+    async claimNf(id, retry = false) {
+      await ready;
+      const free = nf => !nf?.status || (retry && nf.status === 'erro');
+      const nf = { status: 'emitindo', em: Date.now() };
+      if (isFb()) {
+        const ref = fb.db.collection('pedidos').doc(id);
+        return fb.db.runTransaction(async t => {
+          const d = await t.get(ref);
+          if (!d.exists || !free(d.data().nf)) return false;
+          t.update(ref, { nf, atualizadoEm: Date.now() });
+          return true;
+        });
+      }
+      const cur = local.col('pedidos')[id];
+      if (!cur || !free(cur.nf)) return false;
+      local.put('pedidos', id, { ...cur, nf }, false);
+      return true;
+    },
     async deleteOrder(id) {
       await ready;
       if (isFb()) return fb.db.collection('pedidos').doc(id).delete();

@@ -159,8 +159,20 @@
     $('tabCount').textContent = active || '';
     document.title = active ? `(${active}) Gestão Baldini` : 'Gestão Baldini';
     checkPayments(list);
-    renderTab();
-    if ($('orderModal').open && openId) renderOrderModal(openId);
+    autoNf(list);
+    scheduleRender();
+  }
+  // Com muito movimento chegam várias mudanças por segundo: redesenha no máximo a cada 300 ms
+  let renderTimer = null, lastRender = 0;
+  function scheduleRender() {
+    if (renderTimer) return;
+    const wait = Math.max(0, 300 - (Date.now() - lastRender));
+    renderTimer = setTimeout(() => {
+      renderTimer = null;
+      lastRender = Date.now();
+      renderTab();
+      if ($('orderModal').open && openId) renderOrderModal(openId);
+    }, wait);
   }
 
   const COLS = ['montando', 'novo', 'preparo', 'pronto', 'entrega'];
@@ -222,7 +234,7 @@
     const hist = [...(o.historico || []), { status, em: Date.now() }].slice(-30);
     return safe('Erro ao mudar status', async () => {
       await DB.updateOrder(o.id, { status, historico: hist });
-      if (status === 'concluido' && state.cfg.nf.nfAuto && !o.nf?.chave) emitNf({ ...o, status });
+      if (status === 'cancelado' && Core.NF_STATUS_OK.includes(o.nf?.status)) cancelNf(o);
     });
   }
   function advance(o) {
@@ -270,7 +282,11 @@
         ${o.retornoPagamento ? '<button type="button" class="btn btn--sm btn--ghost" data-m="check">🔎 Conferir pagamento</button>' : ''}</div>`}
       </div>
       <h4>Nota fiscal</h4>
-      <div class="row">${o.nf?.url ? `<a class="btn btn--sm btn--ghost" href="${esc(o.nf.url)}" target="_blank" rel="noopener">🧾 Ver NFC-e</a>` : `<button type="button" class="btn btn--sm btn--ghost" data-m="nf">🧾 Emitir NFC-e</button>`}<span class="muted small">${esc(o.nf?.status || '')}</span></div>
+      <div class="row"><span class="tag">${nfLabel(o.nf)}</span>
+        ${o.nf?.url ? `<a class="btn btn--sm btn--ghost" href="${esc(o.nf.url)}" target="_blank" rel="noopener">🧾 Ver NFC-e</a>` : ''}
+        ${o.nf?.payload ? '<button type="button" class="btn btn--sm btn--ghost" data-m="nfview">🧾 Ver nota</button>' : ''}
+        ${!o.nf?.status || o.nf.status === 'erro' ? '<button type="button" class="btn btn--sm btn--ghost" data-m="nf">🧾 Emitir NFC-e</button>' : ''}
+        ${o.nf?.erro ? `<small class="muted">${esc(o.nf.erro)}</small>` : ''}</div>
       <footer class="modal__foot">
         <button type="button" class="btn btn--sm btn--ghost" data-m="print">🖨 Comanda</button>
         <button type="button" class="btn btn--sm btn--ghost" data-m="whats">💬 Avisar cliente</button>
@@ -280,10 +296,11 @@
   $('orderBody').addEventListener('click', e => {
     const b = e.target.closest('[data-m]');
     if (!b || b.tagName === 'INPUT') return;
+    const m = b.dataset.m;
+    if (m === 'close') return $('orderModal').close();
     const o = state.orders.find(x => x.id === openId);
     if (!o) return;
-    const m = b.dataset.m;
-    if (m === 'close') $('orderModal').close();
+    if (m === 'nfview') return showNf(o);
     if (m === 'status') setStatus(o, b.dataset.s);
     if (m === 'pay') safe('Erro ao marcar pagamento', () => DB.updateOrder(o.id, { 'pagamento.pago': true, 'pagamento.metodo': b.dataset.p }));
     if (m === 'unpay') safe('Erro', () => DB.updateOrder(o.id, { 'pagamento.pago': false, 'pagamento.metodo': '' }));
@@ -342,33 +359,113 @@
   function checkPayments(list) { list.filter(o => o.retornoPagamento && !o.pagamento?.pago).forEach(o => checkPayment(o, false)); }
 
   // ---------- Nota fiscal ----------
-  async function emitNf(o) {
-    const cnpj = state.cfg.nf.cnpj;
-    if (!cnpj) return toast('Preencha o CNPJ em Configurações > Nota fiscal', true);
-    if (DB.mode !== 'firebase') return toast('A emissão de NFC-e precisa do Firebase e da função "emitirNfce"', true);
-    await safe('Erro na NFC-e', async () => {
-      await DB.updateOrder(o.id, { nf: { status: 'enviando...' } });
-      const payload = Core.nfcePayload(o, { cnpj, ncm: state.cfg.nf.ncm || undefined, csosn: state.cfg.nf.csosn || undefined });
-      const r = await DB.call('emitirNfce', { pedidoId: o.id, payload });
-      await DB.updateOrder(o.id, { nf: { status: r.status || 'enviada', chave: r.chave || '', url: r.url || '' } });
-      toast('🧾 NFC-e: ' + (r.status || 'enviada'));
+  // Emissor "simulacao" monta a nota completa sem mandar para a SEFAZ (para testar antes de ter o emissor).
+  // Emissor "focus" manda pela função emitirNfce do Firebase (Focus NFe).
+  const CNPJ_LOJA = '46723226000111';
+  const nfCfg = () => ({ emissor: 'simulacao', nfQuando: 'pedido', ...state.cfg.nf });
+  const NF_LABEL = { emitindo: '⏳ Emitindo', autorizado: '✅ Autorizada', simulada: '🧪 Simulada', processando_autorizacao: '⏳ Na SEFAZ', erro: '❌ Erro', cancelado: '✖ Cancelada', cancelada: '✖ Cancelada' };
+  const nfLabel = nf => (nf?.status ? NF_LABEL[nf.status] || nf.status : '—');
+
+  async function emitNf(o, { auto = false } = {}) {
+    const cfg = nfCfg();
+    const cnpj = cfg.cnpj || (cfg.emissor === 'simulacao' ? CNPJ_LOJA : '');
+    if (!cnpj) return auto ? null : toast('Preencha o CNPJ em Configurações > Nota fiscal', true);
+    if (cfg.emissor === 'focus' && DB.mode !== 'firebase') return auto ? null : toast('O emissor Focus NFe precisa do Firebase', true);
+    if (!(o.itens || []).length) return auto ? null : toast('Pedido sem itens', true);
+    let claimed = false;
+    try { claimed = await DB.claimNf(o.id, !auto); } catch (e) { console.warn('claimNf', e); }
+    if (!claimed) return null; // outro aparelho já está emitindo esta nota
+    const payload = Core.nfcePayload(o, { cnpj, ncm: cfg.ncm || undefined, csosn: cfg.csosn || undefined });
+    try {
+      let nf;
+      if (cfg.emissor === 'focus') {
+        const r = await DB.call('emitirNfce', { pedidoId: o.id, payload });
+        nf = { status: r.status || 'processando_autorizacao', chave: r.chave || '', url: r.url || '', em: Date.now(), emissor: 'focus' };
+      } else {
+        nf = { status: 'simulada', chave: '', url: '', em: Date.now(), emissor: 'simulacao', payload };
+      }
+      await DB.updateOrder(o.id, { nf });
+      if (!auto) toast('🧾 Nota: ' + nfLabel(nf));
+      return nf;
+    } catch (e) {
+      console.error('NFC-e', e);
+      await DB.updateOrder(o.id, { nf: { status: 'erro', erro: String(e.message || e).slice(0, 200), em: Date.now() } }).catch(() => {});
+      toast(`🧾 Nota do pedido ${Core.shortCode(o.id)} falhou: ${e.message || e}`, true);
+      return null;
+    }
+  }
+  async function cancelNf(o) {
+    await safe('Erro ao cancelar a nota', async () => {
+      if (o.nf?.emissor === 'focus') await DB.call('cancelarNfce', { pedidoId: o.id, justificativa: 'Pedido cancelado pelo cliente antes da entrega' });
+      await DB.updateOrder(o.id, { 'nf.status': 'cancelada', 'nf.canceladaEm': Date.now() });
+      toast(`🧾 Nota do pedido ${Core.shortCode(o.id)} cancelada`);
     });
   }
+
+  // Emite sozinho: uma nota por vez, só de pedidos das últimas 48 h (não reemite o histórico)
+  const nfQueue = [];
+  let nfBusy = false;
+  function autoNf(list) {
+    const cfg = nfCfg();
+    if (!cfg.nfAuto) return;
+    const since = Date.now() - 48 * 36e5;
+    list.filter(o => o.criadoEm >= since && Core.shouldAutoEmit(o, cfg) && !nfQueue.some(q => q.id === o.id))
+      .sort((a, b) => a.criadoEm - b.criadoEm).forEach(o => nfQueue.push(o));
+    runNfQueue();
+  }
+  async function runNfQueue() {
+    if (nfBusy) return;
+    nfBusy = true;
+    try {
+      while (nfQueue.length) {
+        const o = nfQueue.shift();
+        const latest = state.orders.find(x => x.id === o.id) || o;
+        if (Core.shouldAutoEmit(latest, nfCfg())) await emitNf(latest, { auto: true });
+      }
+    } finally { nfBusy = false; }
+  }
+
   function renderNf() {
-    const ready = DB.mode === 'firebase' && state.cfg.nf.cnpj;
-    $('nfState').innerHTML = ready ? 'Emissão pela função <b>emitirNfce</b> do Firebase (Focus NFe).' : '⚠️ Ainda não configurado. Falta: ' + [DB.mode !== 'firebase' && 'Firebase', !state.cfg.nf.cnpj && 'CNPJ em Configurações', 'conta num emissor (Focus NFe) com o token na função do Firebase'].filter(Boolean).join(', ') + '.';
-    const list = state.orders.filter(Core.countsAsSale).slice(0, 80);
-    $('nfList').innerHTML = `<table class="table"><thead><tr><th>Pedido</th><th>Cliente</th><th>Total</th><th>Status NF</th><th></th></tr></thead><tbody>
-      ${list.map(o => `<tr><td>${esc(Core.shortCode(o.id))} <small class="muted">${new Date(o.criadoEm).toLocaleDateString('pt-BR')}</small></td><td>${esc(o.cliente?.nome || '—')}</td><td>${brl(o.total)}</td>
-        <td>${o.nf?.url ? `<a href="${esc(o.nf.url)}" target="_blank" rel="noopener">${esc(o.nf.status || 'emitida')}</a>` : esc(o.nf?.status || '—')}</td>
-        <td>${o.nf?.chave ? '' : `<button type="button" class="btn btn--sm btn--ghost" data-nf="${esc(o.id)}">Emitir</button>`}</td></tr>`).join('')}
+    const cfg = nfCfg();
+    const quando = { pedido: 'assim que o pedido chega', pago: 'quando o pedido é marcado como pago', concluido: 'quando o pedido é concluído' }[cfg.nfQuando];
+    const emissor = cfg.emissor === 'focus' ? 'Focus NFe (SEFAZ)' : 'Simulação (não vale como nota, serve para testar)';
+    $('nfState').innerHTML = `${cfg.nfAuto ? `🤖 Emissão automática <b>ligada</b>: ${quando}.` : '✋ Emissão automática <b>desligada</b> (ligue em Configurações).'} Emissor: <b>${emissor}</b>.` +
+      (cfg.emissor === 'focus' && DB.mode !== 'firebase' ? ' ⚠️ O Focus NFe precisa do Firebase.' : '') +
+      (cfg.emissor === 'simulacao' ? ' <br><small class="muted">Para notas de verdade: crie a conta na Focus NFe, publique a função do Firebase e troque o emissor em Configurações.</small>' : '');
+    const list = state.orders.filter(Core.countsAsSale).slice(0, 120);
+    $('nfList').innerHTML = `<table class="table"><thead><tr><th>Pedido</th><th>Cliente</th><th>Pagamento</th><th>Total</th><th>Nota</th><th></th></tr></thead><tbody>
+      ${list.map(o => `<tr><td>${esc(Core.shortCode(o.id))} <small class="muted">${hhmm(o.criadoEm)} ${new Date(o.criadoEm).toLocaleDateString('pt-BR')}</small></td><td>${esc(o.cliente?.nome || '—')}</td><td>${esc(o.pagamento?.metodo || o.pagamento?.forma || '')}</td><td>${brl(o.total)}</td>
+        <td>${o.nf?.url ? `<a href="${esc(o.nf.url)}" target="_blank" rel="noopener">${nfLabel(o.nf)}</a>` : `<span title="${esc(o.nf?.erro || '')}">${nfLabel(o.nf)}</span>`}</td>
+        <td>${o.nf?.payload ? `<button type="button" class="btn btn--sm btn--ghost" data-nfview="${esc(o.id)}">Ver</button>` : ''}${!o.nf?.status || o.nf.status === 'erro' ? `<button type="button" class="btn btn--sm btn--ghost" data-nf="${esc(o.id)}">Emitir</button>` : ''}</td></tr>`).join('')}
     </tbody></table>`;
   }
   $('nfList').addEventListener('click', e => {
+    const view = e.target.closest('[data-nfview]')?.dataset.nfview;
+    if (view) return showNf(state.orders.find(x => x.id === view));
     const id = e.target.closest('[data-nf]')?.dataset.nf;
     const o = id && state.orders.find(x => x.id === id);
     if (o) emitNf(o);
   });
+
+  // Prévia da nota (DANFE simplificado) a partir do que foi enviado
+  const FORMA_LABEL = { '01': 'Dinheiro', '03': 'Cartão de crédito', '04': 'Cartão de débito', '17': 'Pix', '99': 'Outros' };
+  function showNf(o) {
+    const n = o?.nf?.payload;
+    if (!n) return;
+    const p = n.formas_pagamento[0];
+    $('orderBody').innerHTML = `<header class="modal__head"><h2>NFC-e ${o.nf.status === 'simulada' ? '<small>🧪 simulação, sem valor fiscal</small>' : ''}</h2><button type="button" class="icon-btn" data-m="close" aria-label="Fechar">✕</button></header>
+      <div class="danfe">
+        <p><b>BALDINI BURGUER</b><br>CNPJ ${esc(n.cnpj_emitente.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5'))}<br>${esc(n.natureza_operacao)} · ${new Date(n.data_emissao).toLocaleString('pt-BR')}</p>
+        <table class="table"><thead><tr><th>Item</th><th>Qtd</th><th>Unit.</th><th>Total</th></tr></thead><tbody>
+          ${n.items.map(i => `<tr><td>${esc(i.descricao)}<br><small class="muted">NCM ${esc(i.codigo_ncm)} · CFOP ${esc(i.cfop)} · CSOSN ${esc(i.icms_situacao_tributaria)}</small></td><td>${i.quantidade_comercial}</td><td>${brl(i.valor_unitario_comercial)}</td><td>${brl(i.valor_bruto)}</td></tr>`).join('')}
+        </tbody></table>
+        <p>${n.valor_frete ? `Frete: ${brl(n.valor_frete)}<br>` : ''}${n.valor_desconto ? `Desconto: ${brl(n.valor_desconto)}<br>` : ''}<b>Total: ${brl(p.valor_pagamento)}</b><br>Pagamento: ${FORMA_LABEL[p.forma_pagamento] || p.forma_pagamento}${p.valor_troco ? ` · troco ${brl(p.valor_troco)}` : ''}</p>
+        <p>${n.cpf_destinatario ? `Consumidor: ${esc(n.nome_destinatario || '')} · CPF ${esc(n.cpf_destinatario.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4'))}${n.logradouro_destinatario ? `<br>${esc(n.logradouro_destinatario)}, ${esc(n.numero_destinatario)} - ${esc(n.bairro_destinatario)}, ${esc(n.municipio_destinatario)}-${esc(n.uf_destinatario)}` : ''}` : 'Consumidor não identificado'}</p>
+        <p class="muted small">${esc(n.informacoes_adicionais_contribuinte || '')}</p>
+      </div>`;
+    if (!$('orderModal').open) $('orderModal').showModal();
+    openId = null;
+  }
 
   // ---------- Comanda ----------
   function printOrder(o) {
@@ -441,7 +538,7 @@
     const f = $('posForm').elements;
     return Core.sanitizeOrder({
       id: Core.newOrderId(), origem: f.origem.value, status: 'novo', itens: posCart,
-      cliente: { nome: f.nome.value.trim(), telefone: f.telefone.value.trim() },
+      cliente: { nome: f.nome.value.trim(), telefone: f.telefone.value.trim(), cpf: f.cpf.value.trim() },
       entrega: { tipo: f.entrega.value, endereco: f.endereco.value.trim(), bairro: f.bairro.value.trim(), referencia: f.referencia.value.trim(), taxa: num(f.taxa.value) },
       pagamento: { forma: f.pagamento.value, pago: f.pago.checked, metodo: f.pago.checked ? f.pagamento.value : '' },
       desconto: num(f.desconto.value), obs: f.obs.value.trim(), criadoEm: Date.now(), historico: [{ status: 'novo', em: Date.now() }]
@@ -577,6 +674,7 @@
     f.custoEntrega.value = l.custoEntrega ? money(l.custoEntrega) : '';
     f.ifoodAtivo.checked = !!l.ifoodAtivo;
     f.cnpj.value = nf.cnpj || ''; f.ncm.value = nf.ncm || ''; f.csosn.value = nf.csosn || ''; f.nfAuto.checked = !!nf.nfAuto;
+    f.nfQuando.value = nf.nfQuando || 'pedido'; f.emissor.value = nf.emissor || 'simulacao';
   }
   $('configForm').addEventListener('submit', e => {
     e.preventDefault();
@@ -584,12 +682,14 @@
     const fees = {};
     $('feeFields').querySelectorAll('[data-fee]').forEach(i => { fees[i.dataset.fee] = num(i.value); });
     const loja = { infinitepayHandle: f.infinitepayHandle.value.trim().replace(/^\$/, ''), pagamentoOnline: f.pagamentoOnline.checked, webhookUrl: f.webhookUrl.value.trim(), custoEntrega: num(f.custoEntrega.value), ifoodAtivo: f.ifoodAtivo.checked, taxas: fees };
-    const nf = { cnpj: f.cnpj.value.trim(), ncm: f.ncm.value.trim(), csosn: f.csosn.value.trim(), nfAuto: f.nfAuto.checked };
+    const nf = { cnpj: f.cnpj.value.trim(), ncm: f.ncm.value.trim(), csosn: f.csosn.value.trim(), nfAuto: f.nfAuto.checked, nfQuando: f.nfQuando.value, emissor: f.emissor.value };
     if (loja.pagamentoOnline && !loja.infinitepayHandle) return toast('Para pagar online, preencha a InfiniteTag', true);
+    if (nf.nfAuto && nf.emissor === 'focus' && !nf.cnpj) return toast('Para nota de verdade, preencha o CNPJ', true);
     safe('Erro ao salvar', async () => {
       await Promise.all([DB.setConfig('loja', loja), DB.setConfig('nf', nf)]);
       state.cfg.loja = loja; state.cfg.nf = nf;
       toast('Configurações salvas ✅');
+      autoNf(state.orders);
     });
   });
 
@@ -612,6 +712,17 @@
     $('health').innerHTML = items.join('');
   }
   $('runHealth').addEventListener('click', runHealth);
+  $('cleanTests').addEventListener('click', async () => {
+    const tests = state.orders.filter(o => /^TESTE/i.test(o.cliente?.nome || ''));
+    if (!tests.length) return toast('Nenhum pedido de teste encontrado');
+    if (!confirm(`Apagar ${tests.length} pedido(s) de teste? Isso não tem volta.`)) return;
+    let ok = 0;
+    for (let i = 0; i < tests.length; i += 20) {
+      const res = await Promise.allSettled(tests.slice(i, i + 20).map(o => DB.deleteOrder(o.id)));
+      ok += res.filter(r => r.status === 'fulfilled').length;
+    }
+    toast(`${ok} pedido(s) de teste apagado(s) ✅`, ok < tests.length);
+  });
   window.addEventListener('online', () => toast('Conexão de volta ✅'));
   window.addEventListener('offline', () => toast('Sem internet: continue, os dados sincronizam depois', true));
 })();

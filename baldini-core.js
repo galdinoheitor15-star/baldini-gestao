@@ -72,7 +72,7 @@
       id: clip(o.id, 40),
       origem: ['site', 'balcao', 'whatsapp', 'ifood'].includes(o.origem) ? o.origem : 'site',
       status: STATUS_IDS.includes(o.status) ? o.status : 'novo',
-      cliente: { nome: clip(o.cliente?.nome, 80), telefone: clip(o.cliente?.telefone, 30) },
+      cliente: { nome: clip(o.cliente?.nome, 80), telefone: clip(o.cliente?.telefone, 30), cpf: clip(String(o.cliente?.cpf || '').replace(/\D/g, ''), 11) },
       entrega: {
         tipo: clip(o.entrega?.tipo || 'Delivery', 80), endereco: clip(o.entrega?.endereco, 160),
         bairro: clip(o.entrega?.bairro, 80), referencia: clip(o.entrega?.referencia, 160),
@@ -244,22 +244,80 @@
 
   // ---------- Nota fiscal (NFC-e, formato Focus NFe) ----------
   const FORMA_NF = { Dinheiro: '01', 'Crédito': '03', 'Débito': '04', Pix: '17', Online: '17', iFood: '99' };
-  function nfcePayload(order, { cnpj, ncm = '21069090', cfop = '5102', csosn = '102' } = {}) {
+  const NF_STATUS_OK = ['autorizado', 'simulada'];
+  // Código da forma de pagamento na NFC-e (online por cartão é crédito, online por Pix é Pix)
+  function formaNf(order) {
+    const k = payKey(order);
+    if (k === 'Online') return /pix/i.test(order.pagamento?.metodo || '') ? '17' : '03';
+    return FORMA_NF[k] || '99';
+  }
+  // CPF com dígitos verificadores corretos (o cliente digita no site, se quiser)
+  function validCpf(v) {
+    const d = String(v || '').replace(/\D/g, '');
+    if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+    const dv = n => { let s = 0; for (let i = 0; i < n; i++) s += +d[i] * (n + 1 - i); const r = (s * 10) % 11; return r === 10 ? 0 : r; };
+    return dv(9) === +d[9] && dv(10) === +d[10];
+  }
+  // "Rua A, 123" → { rua: 'Rua A', numero: '123' }
+  function splitAddress(s) {
+    const m = String(s || '').trim().match(/^(.*?)[,\s]+(n[ºo°.]?\s*)?(\d+[a-z]?|s\/?n)\b(.*)$/i);
+    return m ? { rua: m[1].trim(), numero: m[3].toUpperCase(), complemento: m[4].replace(/^[\s,-]+/, '').trim() } : { rua: String(s || '').trim(), numero: 'S/N', complemento: '' };
+  }
+  const itemDesc = l => {
+    const extras = (l.choices || []).flatMap(c => c.items.map(i => (i.qty > 1 ? i.qty + 'x ' : '') + i.name));
+    return clip(extras.length ? `${l.name} (${extras.join(', ')})` : l.name, 120);
+  };
+  function nfcePayload(order, { cnpj, ncm = '21069090', cfop = '5102', csosn = '102', municipio = 'Carpina', uf = 'PE' } = {}) {
     const items = (order.itens || []).map((l, i) => ({
-      numero_item: i + 1, codigo_produto: clip(l.id, 60), descricao: clip(l.name, 120), cfop, codigo_ncm: ncm,
+      numero_item: i + 1, codigo_produto: clip(l.id, 60), descricao: itemDesc(l), cfop, codigo_ncm: ncm,
       unidade_comercial: 'UN', quantidade_comercial: l.qty, valor_unitario_comercial: round2(l.unit), valor_bruto: round2(l.unit * l.qty),
       unidade_tributavel: 'UN', quantidade_tributavel: l.qty, valor_unitario_tributavel: round2(l.unit),
       icms_origem: 0, icms_situacao_tributaria: csosn
     }));
     const t = totalsOf(order);
-    return {
+    const forma = formaNf(order);
+    const pagamento = { forma_pagamento: forma, valor_pagamento: t.total };
+    if (['03', '04'].includes(forma)) pagamento.tipo_integracao = 2; // maquininha não integrada ao emissor
+    if (forma === '01' && order.pagamento?.troco) {
+      const troco = round2(Number(String(order.pagamento.troco).replace(',', '.')) - t.total);
+      if (troco > 0) pagamento.valor_troco = troco;
+    }
+    const nf = {
       cnpj_emitente: String(cnpj || '').replace(/\D/g, ''), data_emissao: new Date().toISOString(),
       natureza_operacao: 'Venda ao consumidor', presenca_comprador: isDelivery(order) ? 4 : 1, modalidade_frete: 9, local_destino: 1,
       ...(t.taxa > 0 ? { valor_frete: t.taxa } : {}), ...(t.desconto > 0 ? { valor_desconto: t.desconto } : {}),
       items,
-      formas_pagamento: [{ forma_pagamento: FORMA_NF[payKey(order)] || '99', valor_pagamento: t.total }]
+      formas_pagamento: [pagamento]
     };
+    // Cliente na nota: só com CPF válido (é a regra da NFC-e)
+    const cpf = String(order.cliente?.cpf || '').replace(/\D/g, '');
+    if (validCpf(cpf)) {
+      nf.cpf_destinatario = cpf;
+      if (order.cliente?.nome) nf.nome_destinatario = clip(order.cliente.nome, 60);
+      if (isDelivery(order) && order.entrega?.endereco) {
+        const a = splitAddress(order.entrega.endereco);
+        Object.assign(nf, {
+          logradouro_destinatario: clip(a.rua, 60), numero_destinatario: clip(a.numero, 10),
+          bairro_destinatario: clip(order.entrega.bairro, 60), municipio_destinatario: municipio, uf_destinatario: uf,
+          ...(a.complemento ? { complemento_destinatario: clip(a.complemento, 60) } : {})
+        });
+      }
+    }
+    // Endereço da entrega sempre vai nas informações adicionais (aparece impresso na nota)
+    const info = [`Pedido ${shortCode(order.id)}`, order.origem ? `via ${order.origem}` : ''];
+    if (isDelivery(order)) info.push(`Entrega: ${[order.entrega?.endereco, order.entrega?.bairro, municipio + '-' + uf].filter(Boolean).join(', ')}`);
+    else if (order.entrega?.tipo) info.push(order.entrega.tipo);
+    nf.informacoes_adicionais_contribuinte = clip(info.filter(Boolean).join(' | '), 500);
+    return nf;
+  }
+  // Quando a nota deve sair sozinha: 'pedido' (assim que o pedido chega), 'pago' ou 'concluido'
+  function shouldAutoEmit(order, { nfAuto, nfQuando = 'pedido' } = {}) {
+    if (!nfAuto || order.nf?.status || !(order.itens || []).length) return false;
+    if (['montando', 'cancelado'].includes(order.status)) return false;
+    if (nfQuando === 'pago') return !!order.pagamento?.pago;
+    if (nfQuando === 'concluido') return order.status === 'concluido';
+    return true;
   }
 
-  return { brl, round2, norm, STATUS, STATUS_IDS, statusInfo, nextStatus, isDelivery, countsAsSale, newOrderId, shortCode, unitPrice, missingGroup, subtotalOf, totalsOf, sanitizeOrder, DEFAULT_TAXAS, payKey, feeOf, costOf, profitReport, hourIn, isOpen, MSG, fillMsg, whatsLink, findProducts, botReply, infinitepayPayload, nfcePayload };
+  return { brl, round2, norm, STATUS, STATUS_IDS, statusInfo, nextStatus, isDelivery, countsAsSale, newOrderId, shortCode, unitPrice, missingGroup, subtotalOf, totalsOf, sanitizeOrder, DEFAULT_TAXAS, payKey, feeOf, costOf, profitReport, hourIn, isOpen, MSG, fillMsg, whatsLink, findProducts, botReply, infinitepayPayload, nfcePayload, validCpf, splitAddress, shouldAutoEmit, formaNf, NF_STATUS_OK };
 });

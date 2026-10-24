@@ -216,4 +216,37 @@ a { color: var(--yellow); }
   }
   .pos__bar[hidden] { display: none; }
   .toast { bottom: 88px; }
+
+  /* Campos com 16px: abaixo disso o iPhone dá zoom ao tocar e a tela fica ampliada */
+  input, select, textarea, .field input, .field select, .field textarea, .search, .inline-form input, .crow input { font-size: 16px; }
+
+  /* Janelas (opções do produto, detalhe do pedido) viram tela cheia, com título e botão fixos */
+  .modal {
+    width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0;
+    border: 0; border-radius: 0; padding: 0 16px; overscroll-behavior: contain;
+  }
+  .modal__head {
+    position: sticky; top: 0; z-index: 2; margin: 0 -16px; padding: 14px 16px 10px;
+    background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  .modal__head h2 { font-size: 17px; margin: 0; }
+  .modal__foot {
+    position: sticky; bottom: 0; z-index: 2; margin: 16px -16px 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    background: var(--panel); flex-wrap: nowrap; align-items: center;
+  }
+  #pickBody .modal__foot .btn { flex: 1; }
+  .pg { margin-top: 12px; }
+  .po { min-height: 48px; }
+  .qty button { width: 40px; height: 40px; }
 }
+
+/* Toque rápido no + não vira zoom de "toque duplo" */
+button, .btn, a { touch-action: manipulation; }
+/* Com uma janela aberta, a página de trás não rola junto */
+body:has(dialog[open]) { overflow: hidden; }
+
+/* Prévia da nota fiscal */
+.danfe { background: #fff; color: #111; border-radius: 10px; padding: 16px; font: 13px/1.45 ui-monospace, monospace; }
+.danfe .table th, .danfe .table td { border-color: #ddd; color: #111; }
+.danfe .muted { color: #666; }
+.danfe p { margin: 8px 0; }

@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="gestao.css?v=20261024c">
+  <link rel="stylesheet" href="gestao.css?v=20261024d">
 </head>
 <body>
 
@@ -103,6 +103,7 @@
           </label>
           <label class="field">Nome<input name="nome" maxlength="80"></label>
           <label class="field">WhatsApp<input name="telefone" inputmode="tel" maxlength="30"></label>
+          <label class="field">CPF na nota (opcional)<input name="cpf" inputmode="numeric" maxlength="14"></label>
         </div>
         <div class="grid2" id="posAddr">
           <label class="field">Endereço<input name="endereco" maxlength="160"></label>
@@ -218,7 +219,16 @@
         <label class="field">NCM padrão<input name="ncm" placeholder="21069090"></label>
         <label class="field">CSOSN (Simples)<input name="csosn" placeholder="102"></label>
       </div>
-      <label class="check"><input type="checkbox" name="nfAuto"> Emitir NFC-e automaticamente ao concluir o pedido</label>
+      <label class="check"><input type="checkbox" name="nfAuto"> Emitir a nota fiscal sozinha (com produtos, pagamento, endereço e CPF do cliente)</label>
+      <div class="grid2">
+        <label class="field">Quando emitir
+          <select name="nfQuando"><option value="pedido">Assim que o pedido chega</option><option value="pago">Quando for marcado como pago</option><option value="concluido">Quando o pedido for concluído</option></select>
+        </label>
+        <label class="field">Emissor
+          <select name="emissor"><option value="simulacao">Simulação (teste, sem valor fiscal)</option><option value="focus">Focus NFe (nota de verdade)</option></select>
+        </label>
+      </div>
+      <p class="muted small">Se o pedido for cancelado, a nota é cancelada junto. Com a gestão aberta em vários aparelhos, só um emite cada nota.</p>
 
       <h2>iFood</h2>
       <label class="check"><input type="checkbox" name="ifoodAtivo"> Integração iFood ligada (precisa da função no Firebase com as credenciais)</label>
@@ -233,6 +243,9 @@
       <ul class="health" id="health"></ul>
       <button class="btn btn--sm btn--yellow" type="button" id="runHealth">Verificar de novo</button>
       <a class="btn btn--sm btn--ghost" href="tests/index.html" target="_blank" rel="noopener">Rodar testes automáticos</a>
+      <h2 style="margin-top:18px">Pedidos de teste</h2>
+      <p class="muted small">Apaga todos os pedidos cujo nome do cliente começa com <b>TESTE</b> (usados nos testes de carga).</p>
+      <button class="btn btn--sm btn--danger" type="button" id="cleanTests">Apagar pedidos de teste</button>
     </div>
   </section>
 </div>
@@ -247,11 +260,11 @@
 
 <!-- O cardápio vem do site de pedidos: mudou lá, muda aqui -->
 <script src="https://galdinoheitor15-star.github.io/baldini-burguer/menu-data.js"></script>
-<script src="baldini-core.js?v=20261024c"></script>
-<script src="firebase-config.js?v=20261024c"></script>
+<script src="baldini-core.js?v=20261024d"></script>
+<script src="firebase-config.js?v=20261024d"></script>
 <script>window.BALDINI_OFFLINE = true;</script>
-<script src="baldini-db.js?v=20261024c"></script>
+<script src="baldini-db.js?v=20261024d"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
-<script src="gestao.js?v=20261024c" defer></script>
+<script src="gestao.js?v=20261024d" defer></script>
 </body>
 </html>

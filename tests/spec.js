@@ -190,4 +190,48 @@
     const n = Core.nfcePayload(order({ entrega: { tipo: 'Delivery', taxa: 5 }, pagamento: { forma: 'Dinheiro' } }), { cnpj: '1' });
     eq([n.valor_frete, n.presenca_comprador, n.formas_pagamento[0]], [5, 4, { forma_pagamento: '01', valor_pagamento: 66.98 }]);
   });
+  test('CPF: aceita válido e recusa inválido', () => {
+    ok(Core.validCpf('529.982.247-25'));
+    ok(!Core.validCpf('529.982.247-24'));
+    ok(!Core.validCpf('111.111.111-11'));
+    ok(!Core.validCpf('123'));
+  });
+  test('NFC-e com CPF leva nome e endereço do cliente', () => {
+    const n = Core.nfcePayload(order({ cliente: { nome: 'Ana', cpf: '529.982.247-25' }, entrega: { tipo: 'Delivery', endereco: 'Rua das Flores, 123 ap 2', bairro: 'Centro', taxa: 0 } }), { cnpj: '1' });
+    eq([n.cpf_destinatario, n.nome_destinatario, n.logradouro_destinatario, n.numero_destinatario, n.complemento_destinatario, n.bairro_destinatario, n.municipio_destinatario, n.uf_destinatario],
+      ['52998224725', 'Ana', 'Rua das Flores', '123', 'ap 2', 'Centro', 'Carpina', 'PE']);
+  });
+  test('NFC-e sem CPF não identifica o cliente, mas leva o endereço nas informações', () => {
+    const n = Core.nfcePayload(order({ cliente: { nome: 'Ana', cpf: '123' }, entrega: { tipo: 'Delivery', endereco: 'Rua A, 10', bairro: 'Cajá' } }), { cnpj: '1' });
+    ok(!('cpf_destinatario' in n) && !('logradouro_destinatario' in n));
+    ok(n.informacoes_adicionais_contribuinte.includes('Rua A, 10, Cajá, Carpina-PE'));
+    ok(n.informacoes_adicionais_contribuinte.includes('#TEST'));
+  });
+  test('NFC-e descreve os adicionais e trata cartão e troco', () => {
+    const o = order({ itens: [{ id: 'granada', name: 'Granada', unit: 35.99, qty: 1, choices: [{ group: 'Adicionais', items: [{ name: 'Bacon', qty: 2, price: 5 }] }] }] });
+    eq(Core.nfcePayload(o, { cnpj: '1' }).items[0].descricao, 'Granada (2x Bacon)');
+    eq(Core.nfcePayload({ ...o, pagamento: { forma: 'Pix', metodo: 'Crédito' } }, { cnpj: '1' }).formas_pagamento[0], { forma_pagamento: '03', valor_pagamento: 35.99, tipo_integracao: 2 });
+    eq(Core.nfcePayload({ ...o, pagamento: { forma: 'Dinheiro', troco: '50' } }, { cnpj: '1' }).formas_pagamento[0], { forma_pagamento: '01', valor_pagamento: 35.99, valor_troco: 14.01 });
+    eq(Core.formaNf({ pagamento: { forma: 'Online', metodo: 'Pix (online)' } }), '17');
+    eq(Core.formaNf({ pagamento: { forma: 'Online', metodo: 'Online' } }), '03');
+  });
+  test('endereço sem número vira S/N', () => {
+    eq(Core.splitAddress('Rua Sem Número'), { rua: 'Rua Sem Número', numero: 'S/N', complemento: '' });
+    eq(Core.splitAddress('Av. Rosita Freire, nº 460'), { rua: 'Av. Rosita Freire', numero: '460', complemento: '' });
+  });
+  test('nota automática: quando emitir', () => {
+    const base = order();
+    ok(Core.shouldAutoEmit(base, { nfAuto: true, nfQuando: 'pedido' }));
+    ok(!Core.shouldAutoEmit(base, { nfAuto: false }));
+    ok(!Core.shouldAutoEmit({ ...base, status: 'montando' }, { nfAuto: true }));
+    ok(!Core.shouldAutoEmit({ ...base, status: 'cancelado' }, { nfAuto: true }));
+    ok(!Core.shouldAutoEmit({ ...base, nf: { status: 'simulada' } }, { nfAuto: true }));
+    ok(!Core.shouldAutoEmit(base, { nfAuto: true, nfQuando: 'pago' }));
+    ok(Core.shouldAutoEmit({ ...base, pagamento: { pago: true } }, { nfAuto: true, nfQuando: 'pago' }));
+    ok(!Core.shouldAutoEmit(base, { nfAuto: true, nfQuando: 'concluido' }));
+    ok(Core.shouldAutoEmit({ ...base, status: 'concluido' }, { nfAuto: true, nfQuando: 'concluido' }));
+  });
+  test('pedido guarda só os números do CPF', () => {
+    eq(Core.sanitizeOrder({ cliente: { cpf: '529.982.247-25' } }).cliente.cpf, '52998224725');
+  });
 });
