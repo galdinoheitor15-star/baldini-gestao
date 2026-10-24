@@ -7,6 +7,8 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
+/* Sem zoom de pinça ou de toque duplo no celular (só rolar) */
+html { touch-action: pan-x pan-y; -webkit-text-size-adjust: 100%; }
 body { background: var(--bg); color: var(--ink); font: 15px/1.45 Inter, system-ui, sans-serif; }
 [hidden] { display: none !important; }
 h1, h2, h3, h4 { margin: 0 0 10px; line-height: 1.2; }
@@ -38,6 +40,7 @@ a { color: var(--yellow); }
 .error { color: var(--bad); font-weight: 600; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0 12px; align-items: end; }
+.grid4 { grid-template-columns: repeat(4, 1fr); }
 .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
@@ -91,6 +94,7 @@ a { color: var(--yellow); }
 .ocard__items { margin: 0 0 8px; font-size: 13px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .ocard footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .ocard__acts { display: flex; gap: 6px; margin-top: 10px; }
+.ocard__auto { margin: 6px 0 0; font-size: 12px; font-weight: 700; color: var(--yellow); }
 .ocard__acts .btn--yellow { flex: 1; white-space: nowrap; padding-inline: 10px; }
 .done { margin-top: 16px; }
 .done summary { cursor: pointer; font-weight: 700; padding: 8px 0; }

@@ -75,6 +75,30 @@
     eq(ids.size, 2000);
   });
 
+  // ---------- Avanço automático ----------
+  const auto = { ativo: true, novo: 1, preparo: 15, pronto: 3, entrega: 25 };
+  test('automação desligada não mexe em nada', () => {
+    eq(Core.autoStep(order({ status: 'preparo' }), { ...auto, ativo: false }), null);
+  });
+  test('pedido avança depois do tempo de cada etapa', () => {
+    const t = 1_000_000;
+    const o = order({ status: 'preparo', entrega: { tipo: 'Delivery' }, historico: [{ status: 'novo', em: t - 60000 }, { status: 'preparo', em: t }] });
+    eq(Core.autoStep(o, auto), { para: 'pronto', em: t + 15 * 60000 });
+    eq(Core.autoStep({ ...o, status: 'pronto', historico: [...o.historico, { status: 'pronto', em: t + 5 }] }, auto), { para: 'entrega', em: t + 5 + 3 * 60000 });
+  });
+  test('retirada vai de pronto direto para concluído', () => {
+    const o = order({ status: 'pronto', entrega: { tipo: 'Retirada na Loja' }, historico: [{ status: 'pronto', em: 500 }] });
+    eq(Core.autoStep(o, auto).para, 'concluido');
+  });
+  test('o tempo conta a partir da última vez que entrou na etapa', () => {
+    const o = order({ status: 'preparo', historico: [{ status: 'preparo', em: 100 }, { status: 'novo', em: 200 }, { status: 'preparo', em: 300 }] });
+    eq(Core.enteredAt(o), 300);
+  });
+  test('concluído, cancelado, montando e iFood não avançam sozinhos', () => {
+    ['concluido', 'cancelado', 'montando'].forEach(s => eq(Core.autoStep(order({ status: s }), auto), null));
+    eq(Core.autoStep(order({ status: 'novo', origem: 'ifood' }), auto), null);
+  });
+
   // ---------- Dados ruins não derrubam ----------
   test('pedido vazio ou estranho vira um pedido válido', () => {
     const o = Core.sanitizeOrder({});

@@ -1,4 +1,6 @@
 // ===== Gestão Baldini =====
+// Sem zoom de pinça no iPhone (o Safari ignora o user-scalable=no)
+document.addEventListener('gesturestart', e => e.preventDefault());
 (() => {
   const Core = window.BaldiniCore;
   const DB = window.BaldiniDB;
@@ -160,7 +162,34 @@
     document.title = active ? `(${active}) Gestão Baldini` : 'Gestão Baldini';
     checkPayments(list);
     autoNf(list);
+    autoAdvance();
     scheduleRender();
+  }
+
+  // ---------- Avanço automático do status ----------
+  const autoCfg = () => ({ ...Core.DEFAULT_AUTO, ...(state.cfg.loja.automacao || {}) });
+  const advancing = new Set();
+  async function autoAdvance() {
+    const cfg = autoCfg();
+    if (!cfg.ativo) return;
+    const now = Date.now();
+    for (const o of state.orders) {
+      const step = Core.autoStep(o, cfg);
+      if (!step || step.em > now || advancing.has(o.id)) continue;
+      advancing.add(o.id);
+      try {
+        if (await DB.advanceIf(o.id, o.status, step.para)) toast(`${Core.statusInfo(step.para).icon} ${Core.shortCode(o.id)}: ${Core.statusInfo(step.para).label}`);
+      } catch (e) { console.warn('Avanço automático', e); }
+      finally { advancing.delete(o.id); }
+    }
+  }
+  setInterval(autoAdvance, 15000);
+  // Texto do cartão: quanto falta para o próximo passo automático
+  function autoHint(o) {
+    const step = Core.autoStep(o, autoCfg());
+    if (!step) return '';
+    const min = Math.ceil((step.em - Date.now()) / 60000);
+    return `<p class="ocard__auto">⏱ ${Core.statusInfo(step.para).label} ${min > 0 ? `em ${min} min` : 'agora'}</p>`;
   }
   // Com muito movimento chegam várias mudanças por segundo: redesenha no máximo a cada 300 ms
   let renderTimer = null, lastRender = 0;
@@ -194,6 +223,7 @@
       <footer>
         <strong>${brl(o.total)}</strong>${live ? '<span class="tag tag--live">ao vivo</span>' : payBadge(o)}
       </footer>
+      ${live ? '' : autoHint(o)}
       ${live ? '' : `<div class="ocard__acts">
         ${next ? `<button type="button" class="btn btn--sm btn--yellow" data-act="next">${Core.statusInfo(next).icon} ${Core.statusInfo(next).label}</button>` : ''}
         <button type="button" class="btn btn--sm btn--ghost" data-act="whats" title="Avisar cliente no WhatsApp">💬</button>
@@ -673,6 +703,9 @@
     f.webhookUrl.value = l.webhookUrl || '';
     f.custoEntrega.value = l.custoEntrega ? money(l.custoEntrega) : '';
     f.ifoodAtivo.checked = !!l.ifoodAtivo;
+    const a = autoCfg();
+    f.autoAtivo.checked = !!a.ativo;
+    f.autoNovo.value = a.novo; f.autoPreparo.value = a.preparo; f.autoPronto.value = a.pronto; f.autoEntrega.value = a.entrega;
     f.cnpj.value = nf.cnpj || ''; f.ncm.value = nf.ncm || ''; f.csosn.value = nf.csosn || ''; f.nfAuto.checked = !!nf.nfAuto;
     f.nfQuando.value = nf.nfQuando || 'pedido'; f.emissor.value = nf.emissor || 'simulacao';
   }
@@ -682,6 +715,8 @@
     const fees = {};
     $('feeFields').querySelectorAll('[data-fee]').forEach(i => { fees[i.dataset.fee] = num(i.value); });
     const loja = { infinitepayHandle: f.infinitepayHandle.value.trim().replace(/^\$/, ''), pagamentoOnline: f.pagamentoOnline.checked, webhookUrl: f.webhookUrl.value.trim(), custoEntrega: num(f.custoEntrega.value), ifoodAtivo: f.ifoodAtivo.checked, taxas: fees };
+    const mins = (v, d) => { const n = num(v); return v === '' || n < 0 ? d : Math.min(600, n); };
+    loja.automacao = { ativo: f.autoAtivo.checked, novo: mins(f.autoNovo.value, Core.DEFAULT_AUTO.novo), preparo: mins(f.autoPreparo.value, Core.DEFAULT_AUTO.preparo), pronto: mins(f.autoPronto.value, Core.DEFAULT_AUTO.pronto), entrega: mins(f.autoEntrega.value, Core.DEFAULT_AUTO.entrega) };
     const nf = { cnpj: f.cnpj.value.trim(), ncm: f.ncm.value.trim(), csosn: f.csosn.value.trim(), nfAuto: f.nfAuto.checked, nfQuando: f.nfQuando.value, emissor: f.emissor.value };
     if (loja.pagamentoOnline && !loja.infinitepayHandle) return toast('Para pagar online, preencha a InfiniteTag', true);
     if (nf.nfAuto && nf.emissor === 'focus' && !nf.cnpj) return toast('Para nota de verdade, preencha o CNPJ', true);
@@ -690,6 +725,8 @@
       state.cfg.loja = loja; state.cfg.nf = nf;
       toast('Configurações salvas ✅');
       autoNf(state.orders);
+      autoAdvance();
+      renderBoard();
     });
   });
 

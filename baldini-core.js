@@ -30,6 +30,24 @@
   const isDelivery = o => (o.entrega?.tipo || '') === 'Delivery';
   const countsAsSale = o => !['montando', 'cancelado'].includes(o.status);
 
+  // ---------- Avanço automático do status ----------
+  // Minutos que o pedido fica em cada etapa antes de ir para a próxima
+  const DEFAULT_AUTO = { ativo: false, novo: 1, preparo: 15, pronto: 3, entrega: 25 };
+  // Quando o pedido entrou na etapa em que está agora
+  function enteredAt(order) {
+    const h = (order.historico || []).filter(x => x.status === order.status).pop();
+    return Number(h?.em) || Number(order.atualizadoEm) || Number(order.criadoEm) || 0;
+  }
+  // Próximo passo automático: { para, em } ou null. Pedidos do iFood seguem o status do próprio iFood.
+  function autoStep(order, cfg = {}) {
+    const c = { ...DEFAULT_AUTO, ...cfg };
+    if (!c.ativo || order.origem === 'ifood' || order.autoPausado) return null;
+    const para = nextStatus(order);
+    const min = Number(c[order.status]);
+    if (!para || !(min >= 0)) return null;
+    return { para, em: enteredAt(order) + min * 60000 };
+  }
+
   // ---------- Ids ----------
   const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   function newOrderId(rand = Math.random) {
@@ -319,5 +337,5 @@
     return true;
   }
 
-  return { brl, round2, norm, STATUS, STATUS_IDS, statusInfo, nextStatus, isDelivery, countsAsSale, newOrderId, shortCode, unitPrice, missingGroup, subtotalOf, totalsOf, sanitizeOrder, DEFAULT_TAXAS, payKey, feeOf, costOf, profitReport, hourIn, isOpen, MSG, fillMsg, whatsLink, findProducts, botReply, infinitepayPayload, nfcePayload, validCpf, splitAddress, shouldAutoEmit, formaNf, NF_STATUS_OK };
+  return { brl, round2, norm, STATUS, STATUS_IDS, statusInfo, nextStatus, isDelivery, countsAsSale, DEFAULT_AUTO, enteredAt, autoStep, newOrderId, shortCode, unitPrice, missingGroup, subtotalOf, totalsOf, sanitizeOrder, DEFAULT_TAXAS, payKey, feeOf, costOf, profitReport, hourIn, isOpen, MSG, fillMsg, whatsLink, findProducts, botReply, infinitepayPayload, nfcePayload, validCpf, splitAddress, shouldAutoEmit, formaNf, NF_STATUS_OK };
 });

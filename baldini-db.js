@@ -104,6 +104,30 @@
       local.put('pedidos', id, { ...cur, nf }, false);
       return true;
     },
+    // Avança o status só se o pedido ainda estiver em "de". Com vários aparelhos abertos, só um avança.
+    async advanceIf(id, de, para) {
+      await ready;
+      const apply = o => {
+        if (!o || o.status !== de) return null;
+        const em = Date.now();
+        return { status: para, historico: [...(o.historico || []), { status: para, em, auto: true }].slice(-30), atualizadoEm: em };
+      };
+      if (isFb()) {
+        const ref = fb.db.collection('pedidos').doc(id);
+        return fb.db.runTransaction(async t => {
+          const d = await t.get(ref);
+          const patch = d.exists && apply(d.data());
+          if (!patch) return false;
+          t.update(ref, patch);
+          return true;
+        });
+      }
+      const cur = local.col('pedidos')[id];
+      const patch = apply(cur);
+      if (!patch) return false;
+      local.put('pedidos', id, { ...cur, ...patch }, false);
+      return true;
+    },
     async deleteOrder(id) {
       await ready;
       if (isFb()) return fb.db.collection('pedidos').doc(id).delete();

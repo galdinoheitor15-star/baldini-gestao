@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
   <title>Gestão Baldini</title>
   <meta name="theme-color" content="#2b0705">
@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="gestao.css?v=20261024e">
+  <link rel="stylesheet" href="gestao.css?v=20261024f">
 </head>
 <body>
 
@@ -230,6 +230,16 @@
       </div>
       <p class="muted small">Se o pedido for cancelado, a nota é cancelada junto. Com a gestão aberta em vários aparelhos, só um emite cada nota.</p>
 
+      <h2>Pedidos andando sozinhos</h2>
+      <label class="check"><input type="checkbox" name="autoAtivo"> Avançar o status dos pedidos automaticamente</label>
+      <p class="muted small">Minutos em cada etapa antes de passar para a próxima. Dá para mudar à mão a qualquer momento: o tempo recomeça dali. Pedidos do iFood seguem o próprio iFood.</p>
+      <div class="grid3 grid4">
+        <label class="field">🔔 Novo → Em preparo<input name="autoNovo" inputmode="numeric" placeholder="1"></label>
+        <label class="field">🔥 Em preparo → Pronto<input name="autoPreparo" inputmode="numeric" placeholder="15"></label>
+        <label class="field">✅ Pronto → Saiu p/ entrega (ou Concluído na retirada)<input name="autoPronto" inputmode="numeric" placeholder="3"></label>
+        <label class="field">🛵 Saiu p/ entrega → Concluído<input name="autoEntrega" inputmode="numeric" placeholder="25"></label>
+      </div>
+
       <h2>iFood</h2>
       <label class="check"><input type="checkbox" name="ifoodAtivo"> Integração iFood ligada (precisa da função no Firebase com as credenciais)</label>
       <button class="btn btn--yellow" type="submit">Salvar configurações</button>
@@ -260,11 +270,11 @@
 
 <!-- O cardápio vem do site de pedidos: mudou lá, muda aqui -->
 <script src="https://galdinoheitor15-star.github.io/baldini-burguer/menu-data.js"></script>
-<script src="baldini-core.js?v=20261024e"></script>
-<script src="firebase-config.js?v=20261024e"></script>
+<script src="baldini-core.js?v=20261024f"></script>
+<script src="firebase-config.js?v=20261024f"></script>
 <script>window.BALDINI_OFFLINE = true;</script>
-<script src="baldini-db.js?v=20261024e"></script>
+<script src="baldini-db.js?v=20261024f"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
-<script src="gestao.js?v=20261024e" defer></script>
+<script src="gestao.js?v=20261024f" defer></script>
 </body>
 </html>
