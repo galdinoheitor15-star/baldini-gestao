@@ -127,6 +127,15 @@
       });
       return () => stop();
     },
+    // Pedidos de teste de qualquer data (nome do cliente começando com "TESTE")
+    async findTestOrders() {
+      await ready;
+      if (isFb()) {
+        const s = await fb.db.collection('pedidos').where('cliente.nome', '>=', 'TESTE').where('cliente.nome', '<', 'TESTF').limit(1000).get();
+        return docs(s);
+      }
+      return Object.values(local.col('pedidos')).filter(o => /^TESTE/.test(o.cliente?.nome || ''));
+    },
     watchOrder(id, cb) {
       let stop = () => {};
       ready.then(() => {

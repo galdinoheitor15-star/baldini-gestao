@@ -713,7 +713,10 @@
   }
   $('runHealth').addEventListener('click', runHealth);
   $('cleanTests').addEventListener('click', async () => {
-    const tests = state.orders.filter(o => /^TESTE/i.test(o.cliente?.nome || ''));
+    let tests;
+    try { tests = await DB.findTestOrders(); } catch (e) { return toast('Não deu para buscar os pedidos de teste: ' + e.message, true); }
+    const ids = new Set(tests.map(o => o.id));
+    state.orders.filter(o => /^TESTE/i.test(o.cliente?.nome || '') && !ids.has(o.id)).forEach(o => tests.push(o));
     if (!tests.length) return toast('Nenhum pedido de teste encontrado');
     if (!confirm(`Apagar ${tests.length} pedido(s) de teste? Isso não tem volta.`)) return;
     let ok = 0;
