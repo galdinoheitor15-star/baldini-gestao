@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Testes Baldini</title>
+  <style>
+    :root { --bg: #1c0604; --ink: #fbe9dc; --ok: #3fbf6b; --bad: #ff5a4e; }
+    body { margin: 0; padding: 16px; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, sans-serif; }
+    h1 { font-size: 22px; }
+    li { margin: 2px 0; }
+    .ok { color: var(--ok); } .bad { color: var(--bad); }
+    small { display: block; color: #e9b8a8; margin-left: 22px; }
+  </style>
+</head>
+<body>
+  <h1 id="title">Rodando testes...</h1>
+  <ul id="out"></ul>
+  <script src="https://galdinoheitor15-star.github.io/baldini-burguer/menu-data.js"></script>
+  <script src="../baldini-core.js"></script>
+  <script src="spec.js"></script>
+  <script>
+    (async () => {
+      const results = [];
+      const test = (name, fn) => results.push({ name, fn });
+      BaldiniSpec(test, BaldiniCore, window.MENU);
+      // Imagens do cardápio existem no site
+      test('todas as fotos do cardápio existem', async () => {
+        const imgs = [...new Set(window.MENU.flatMap(c => c.items.map(p => p.img)).filter(Boolean))];
+        const missing = [];
+        await Promise.all(imgs.map(src => fetch('https://galdinoheitor15-star.github.io/baldini-burguer/' + src, { method: 'HEAD', cache: 'no-store' }).then(r => { if (!r.ok) missing.push(src); }).catch(() => missing.push(src))));
+        if (missing.length) throw new Error('faltando: ' + missing.join(', '));
+      });
+      let fail = 0;
+      const out = document.getElementById('out');
+      for (const t of results) {
+        try { await t.fn(); out.insertAdjacentHTML('beforeend', `<li class="ok">✔ ${t.name}</li>`); }
+        catch (e) { fail++; out.insertAdjacentHTML('beforeend', `<li class="bad">✘ ${t.name}<small>${String(e.message).replace(/</g, '&lt;')}</small></li>`); }
+      }
+      const title = document.getElementById('title');
+      title.textContent = fail ? `❌ ${fail} de ${results.length} testes falharam` : `✅ ${results.length} testes passaram`;
+      title.className = fail ? 'bad' : 'ok';
+      window.TEST_RESULT = { total: results.length, fail };
+    })();
+  </script>
+</body>
+</html>

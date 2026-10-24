@@ -1,0 +1,47 @@
+rules_version = '2';
+// Regras de segurança do banco da Baldini.
+// Equipe = quem tem um documento em /equipe/{uid} (criado à mão no Console do Firebase).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isStaff() {
+      return request.auth != null && exists(/databases/$(database)/documents/equipe/$(request.auth.uid));
+    }
+    // Pedido que o próprio cliente pode gravar pelo site
+    function isCustomerOrder(d) {
+      return d.origem == 'site'
+        && d.status in ['montando', 'novo']
+        && d.pagamento.pago == false
+        && d.itens is list && d.itens.size() <= 60
+        && d.total is number && d.total >= 0 && d.total < 5000;
+    }
+
+    match /pedidos/{id} {
+      // Ler um pedido pelo código (o cliente acompanha o dele); listar todos só a equipe
+      allow get: if true;
+      allow list, delete: if isStaff();
+      allow create: if isStaff() || isCustomerOrder(request.resource.data);
+      allow update: if isStaff()
+        // cliente ainda montando a sacola ou enviando o pedido
+        || (resource.data.status == 'montando' && isCustomerOrder(request.resource.data))
+        // cliente voltando do pagamento online: só grava o retorno e o link, nunca marca como pago
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['retornoPagamento', 'pagamento', 'atualizadoEm'])
+            && request.resource.data.pagamento.diff(resource.data.pagamento).affectedKeys().hasOnly(['link']));
+    }
+
+    // A loja (InfiniteTag, pagamento online) é pública; o resto da configuração é da equipe
+    match /config/loja {
+      allow get: if true;
+      allow write: if isStaff();
+    }
+    match /config/{doc} {
+      allow read, write: if isStaff();
+    }
+    match /despesas/{id} {
+      allow read, write: if isStaff();
+    }
+    match /equipe/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+  }
+}

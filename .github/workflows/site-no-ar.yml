@@ -1,0 +1,21 @@
+# Confere a cada 15 minutos se o site de pedidos e a gestão estão no ar.
+# Se cair, a execução falha e o GitHub manda e-mail para o dono do repositório.
+name: Site no ar
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+jobs:
+  checar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Site de pedidos e gestão respondem
+        run: |
+          set -e
+          SITE="https://galdinoheitor15-star.github.io/baldini-burguer"
+          GESTAO="https://galdinoheitor15-star.github.io/baldini-gestao"
+          for u in "$SITE/" "$SITE/menu-data.js" "$SITE/pedido.js" "$SITE/baldini-db.js" "$GESTAO/" "$GESTAO/gestao.js"; do
+            curl -fsS --retry 3 --retry-delay 10 -o /tmp/pagina "$u"
+            echo "ok: $u ($(wc -c < /tmp/pagina) bytes)"
+          done
+          curl -fsS "$SITE/" | grep -q "Baldini" || (echo "Site sem o nome Baldini" && exit 1)

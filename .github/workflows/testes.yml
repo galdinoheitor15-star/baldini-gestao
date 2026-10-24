@@ -1,0 +1,15 @@
+# Roda os testes a cada alteração no site. Se algo quebrar, o GitHub avisa por e-mail.
+name: Testes
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node tests/run-node.js
