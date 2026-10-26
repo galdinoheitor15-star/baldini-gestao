@@ -350,15 +350,17 @@
   }
 
   // ---------- Cargos: quem vê cada aba ----------
-  // Para liberar ou tirar uma aba de um cargo, mude só esta lista.
+  // Para liberar ou tirar uma aba (ou ação) de um cargo, mude só esta lista.
+  // Ações: fecharConta = receber o pagamento (fechar a conta da mesa e marcar pedido como pago)
   const CARGOS = {
-    funcionario: { label: 'Funcionário', icon: '🧑‍🍳', abas: ['comandas', 'pedidos'] },
-    gerente: { label: 'Gerente', icon: '🧑‍💼', abas: ['caixa', 'estoque', 'comandas', 'pedidos', 'novo'] },
-    dono: { label: 'Dono', icon: '👑', abas: ['pedidos', 'comandas', 'caixa', 'estoque', 'novo', 'entregas', 'lucro', 'nf', 'bot', 'equipe', 'config', 'sistema'] }
+    funcionario: { label: 'Funcionário', icon: '🧑‍🍳', abas: ['comandas', 'pedidos'], acoes: ['fecharConta'] },
+    gerente: { label: 'Gerente', icon: '🧑‍💼', abas: ['caixa', 'estoque', 'comandas', 'pedidos', 'novo'], acoes: ['fecharConta'] },
+    dono: { label: 'Dono', icon: '👑', abas: ['pedidos', 'comandas', 'caixa', 'estoque', 'novo', 'entregas', 'lucro', 'nf', 'bot', 'equipe', 'config', 'sistema'], acoes: ['fecharConta'] }
   };
   // Sem cargo no cadastro = dono (quem já estava na equipe antes dos cargos continua vendo tudo)
   const cargoOf = m => (CARGOS[m?.cargo] ? m.cargo : 'dono');
   const canAccess = (cargo, aba) => (CARGOS[cargo] || CARGOS.funcionario).abas.includes(aba);
+  const canDo = (cargo, acao) => !!CARGOS[cargo]?.acoes?.includes(acao);
 
   // ---------- Mesas e comandas ----------
   // Cada envio para a cozinha é um pedido; a conta da mesa é a soma dos pedidos com a comanda aberta.
@@ -421,5 +423,5 @@
     return { pagos: pagos.sort((a, b) => paidAt(b) - paidAt(a)), porForma, qtdForma, recebido, ticketMedio: pagos.length ? round2(recebido / pagos.length) : 0 };
   }
 
-  return { CARGOS, cargoOf, canAccess, comandaKey, comandaLabel, openComandas, nextComanda, stockStatus, stockNeeds, PAY_ORDER, paidAt, cashReport, brl, round2, norm, STATUS, STATUS_IDS, statusInfo, nextStatus, isDelivery, countsAsSale, DEFAULT_AUTO, enteredAt, autoStep, newOrderId, shortCode, unitPrice, missingGroup, subtotalOf, totalsOf, sanitizeOrder, DEFAULT_TAXAS, payKey, feeOf, costOf, profitReport, hourIn, isOpen, MSG, fillMsg, whatsLink, findProducts, botReply, infinitepayPayload, nfcePayload, validCpf, splitAddress, shouldAutoEmit, formaNf, NF_STATUS_OK };
+  return { CARGOS, cargoOf, canAccess, canDo, comandaKey, comandaLabel, openComandas, nextComanda, stockStatus, stockNeeds, PAY_ORDER, paidAt, cashReport, brl, round2, norm, STATUS, STATUS_IDS, statusInfo, nextStatus, isDelivery, countsAsSale, DEFAULT_AUTO, enteredAt, autoStep, newOrderId, shortCode, unitPrice, missingGroup, subtotalOf, totalsOf, sanitizeOrder, DEFAULT_TAXAS, payKey, feeOf, costOf, profitReport, hourIn, isOpen, MSG, fillMsg, whatsLink, findProducts, botReply, infinitepayPayload, nfcePayload, validCpf, splitAddress, shouldAutoEmit, formaNf, NF_STATUS_OK };
 });

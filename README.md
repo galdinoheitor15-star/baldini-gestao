@@ -22,7 +22,7 @@ No modo demonstração os dados ficam só no navegador (o site e a gestão se en
 ## Cargos: quem vê o quê
 | Cargo | Abas |
 |---|---|
-| 🧑‍🍳 **Funcionário** | Mesas e comandas (abrir, lançar, trocar/juntar, cancelar, pedir a conta) e Pedidos |
+| 🧑‍🍳 **Funcionário** | Mesas e comandas (abrir, lançar, trocar/juntar, cancelar, pedir e **fechar a conta**) e Pedidos |
 | 🧑‍💼 **Gerente** | Caixa (fechar conta + gráfico de pizza por Pix, crédito, débito e dinheiro), Estoque, Mesas e comandas, Pedidos e Lançar pedido |
 | 👑 **Dono** | Tudo, incluindo Lucro, Nota fiscal, Equipe e Configurações |
 

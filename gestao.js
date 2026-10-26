@@ -190,6 +190,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
 
   // ---------- Cargos e abas ----------
   const can = aba => Core.canAccess(state.cargo, aba);
+  const canPay = () => Core.canDo(state.cargo, 'fecharConta');
   function applyRole() {
     const c = Core.CARGOS[state.cargo];
     const dono = state.cargoReal === 'dono';
@@ -410,13 +411,13 @@ document.addEventListener('gesturestart', e => e.preventDefault());
       ${o.obs ? `<p class="note">📝 ${esc(o.obs)}</p>` : ''}
       ${o.recompensa ? `<p class="note">🎁 Quer trocar pontos por: ${esc(o.recompensa)}</p>` : ''}
       ${o.cancelMotivo ? `<p class="note">✖ Cancelado: ${esc(o.cancelMotivo)}</p>` : ''}
-      ${can('caixa') ? `<div class="grid3">
+      ${canPay() ? `<div class="grid3">
         ${d ? `<label class="field">Taxa de entrega<input data-m="taxa" data-mask="money" value="${money(o.entrega?.taxa)}"></label>` : ''}
         <label class="field">Desconto<input data-m="desconto" data-mask="money" value="${money(o.desconto)}"></label>
         <div class="total"><span>Total</span><strong>${brl(o.total)}</strong></div>
       </div>` : `<div class="total"><span>Total</span><strong>${brl(o.total)}</strong></div>`}
       <h4>Pagamento ${payBadge(o)}</h4>
-      ${!can('caixa') ? `<p class="muted small">${o.comanda?.aberta ? 'A conta é fechada no caixa.' : 'Pagamento é recebido pelo caixa.'}</p>` : o.comanda?.aberta && !o.pagamento?.pago ? `<div class="row"><button type="button" class="btn btn--sm btn--yellow" data-m="bill">💵 Fechar a conta da ${esc(Core.comandaLabel(o.comanda))}</button></div>` : `
+      ${!canPay() ? `<p class="muted small">${o.comanda?.aberta ? 'A conta é fechada no caixa.' : 'Pagamento é recebido pelo caixa.'}</p>` : o.comanda?.aberta && !o.pagamento?.pago ? `<div class="row"><button type="button" class="btn btn--sm btn--yellow" data-m="bill">💵 Fechar a conta da ${esc(Core.comandaLabel(o.comanda))}</button></div>` : `
       <div class="paybox">
         ${o.pagamento?.pago ? `<p class="muted small">Recebido${o.pagamento.transacao ? ' · transação ' + esc(o.pagamento.transacao) : ''}. <button type="button" class="link" data-m="unpay">desfazer</button></p>` : `
         <p class="muted small">Na maquininha: digite <b class="big">${brl(o.total)}</b> e depois marque como foi pago.</p>
@@ -469,7 +470,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   $('orderBody').addEventListener('change', e => {
     const m = e.target.dataset.m;
     const o = state.orders.find(x => x.id === openId);
-    if (!o || !['taxa', 'desconto'].includes(m) || !can('caixa')) return;
+    if (!o || !['taxa', 'desconto'].includes(m) || !canPay()) return;
     const next = { ...o, entrega: { ...o.entrega }, desconto: o.desconto };
     if (m === 'taxa') next.entrega.taxa = num(e.target.value); else next.desconto = num(e.target.value);
     const t = Core.totalsOf(next);
@@ -889,7 +890,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
         ${o.obs ? `<p class="muted small">📝 ${esc(o.obs)}</p>` : ''}
       </div>`).join('')}
       <div class="total"><span>Total da conta</span><strong>${brl(c.total)}</strong></div>
-      ${can('caixa') ? '<button type="button" class="btn btn--yellow btn--block" data-c="bill">💵 Fechar a conta</button>' : c.contaPedida ? '<p class="muted small">O caixa já foi avisado para fechar a conta.</p>' : ''}` : '';
+      ${canPay() ? '<button type="button" class="btn btn--yellow btn--block" data-c="bill">💵 Fechar a conta</button>' : c.contaPedida ? '<p class="muted small">O caixa já foi avisado para fechar a conta.</p>' : ''}` : '';
   }
   function renderCmdDraft() {
     if (!cmd || !$('cmdDraft')) return;

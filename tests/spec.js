@@ -303,6 +303,8 @@
     ok(!Core.canAccess('gerente', 'lucro') && !Core.canAccess('gerente', 'config') && !Core.canAccess('gerente', 'equipe'));
     ['pedidos', 'comandas', 'caixa', 'estoque', 'lucro', 'nf', 'config', 'equipe', 'sistema'].forEach(a => ok(Core.canAccess('dono', a), 'dono sem ' + a));
     ok(!Core.canAccess('qualquer', 'caixa'), 'cargo desconhecido não vê o caixa');
+    ['funcionario', 'gerente', 'dono'].forEach(c => ok(Core.canDo(c, 'fecharConta'), c + ' não fecha conta'));
+    ok(!Core.canDo('qualquer', 'fecharConta'));
   });
   test('quem estava na equipe sem cargo continua dono', () => {
     eq(Core.cargoOf({ nome: 'X' }), 'dono');
