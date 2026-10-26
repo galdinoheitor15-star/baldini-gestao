@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="gestao.css?v=20261026b">
+  <link rel="stylesheet" href="gestao.css?v=20261026c">
 </head>
 <body>
 
@@ -36,8 +36,8 @@
       Entrar com Google
     </button>
     <details class="login__alt">
-      <summary>Entrar com e-mail e senha</summary>
-      <label class="field">E-mail<input type="email" name="email" autocomplete="username" maxlength="120"></label>
+      <summary>Entrar com usuário e senha</summary>
+      <label class="field">Usuário ou e-mail<input type="text" name="email" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="120"></label>
       <label class="field">Senha<input type="password" name="senha" autocomplete="current-password" maxlength="100"></label>
       <button class="btn btn--ghost btn--block" type="submit">Entrar</button>
     </details>
@@ -284,6 +284,21 @@
         <p class="muted small">O cargo define o que cada um vê: <b>Funcionário</b> → mesas/comandas e pedidos · <b>Gerente</b> → caixa, desempenho, estoque, mesas e pedidos · <b>Dono</b> → tudo.</p>
         <div id="teamList"></div>
       </div>
+      <div class="team-forms">
+      <form class="card" id="accountForm">
+        <h2>Criar acesso com usuário e senha</h2>
+        <p class="muted small">Para quem não tem conta Google. A pessoa entra na gestão em "Entrar com usuário e senha".</p>
+        <label class="field">Nome<input name="nome" maxlength="60" required placeholder="Ex.: Maria"></label>
+        <div class="grid2">
+          <label class="field">Usuário<input name="usuario" maxlength="60" required autocapitalize="none" spellcheck="false" placeholder="Ex.: maria"></label>
+          <label class="field">Senha (mínimo 6)<input name="senha" type="text" minlength="6" maxlength="60" required autocomplete="new-password" placeholder="Ex.: baldini123"></label>
+        </div>
+        <label class="field">Cargo
+          <select name="cargo"><option value="funcionario">🧑‍🍳 Funcionário</option><option value="gerente">🧑‍💼 Gerente</option><option value="dono">👑 Dono</option></select>
+        </label>
+        <button class="btn btn--yellow btn--block" type="submit">Criar acesso</button>
+        <p class="muted small" id="accountInfo" hidden></p>
+      </form>
       <form class="card" id="teamForm">
         <h2>Liberar acesso</h2>
         <p class="muted small">A pessoa entra na gestão com a conta Google dela e aparece um código na tela. Peça esse código e cole aqui.</p>
@@ -294,6 +309,7 @@
         </label>
         <button class="btn btn--yellow btn--block" type="submit">Liberar acesso</button>
       </form>
+      </div>
     </div>
   </section>
 
@@ -384,12 +400,12 @@
 
 <!-- O cardápio vem do site de pedidos: mudou lá, muda aqui -->
 <script src="https://galdinoheitor15-star.github.io/baldini-burguer/menu-data.js"></script>
-<script src="mascaras.js?v=20261026b"></script>
-<script src="baldini-core.js?v=20261026b"></script>
-<script src="firebase-config.js?v=20261026b"></script>
+<script src="mascaras.js?v=20261026c"></script>
+<script src="baldini-core.js?v=20261026c"></script>
+<script src="firebase-config.js?v=20261026c"></script>
 <script>window.BALDINI_OFFLINE = true;</script>
-<script src="baldini-db.js?v=20261026b"></script>
+<script src="baldini-db.js?v=20261026c"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
-<script src="gestao.js?v=20261026b" defer></script>
+<script src="gestao.js?v=20261026c" defer></script>
 </body>
 </html>

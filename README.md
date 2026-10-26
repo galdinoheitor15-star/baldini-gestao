@@ -26,7 +26,8 @@ No modo demonstração os dados ficam só no navegador (o site e a gestão se en
 | 🧑‍💼 **Gerente** | Caixa (fechar conta + gráfico de pizza por Pix, crédito, débito e dinheiro), Estoque, Mesas e comandas, Pedidos e Lançar pedido |
 | 👑 **Dono** | Tudo, incluindo Lucro, Nota fiscal, Equipe e Configurações |
 
-- A pessoa entra com a conta Google, aparece um código na tela; o dono cola o código na aba **👥 Equipe** e escolhe o cargo.
+- Na aba **👥 Equipe** o dono cria o acesso com **usuário e senha** (a pessoa entra em "Entrar com usuário e senha"), ou libera quem entrou com Google colando o código que aparece na tela da pessoa.
+- Para criar acesso com usuário e senha, o login por **E-mail/senha** precisa estar ativo no Firebase (Authentication → Método de login).
 - Quem já estava na equipe antes dos cargos (sem o campo `cargo`) é tratado como **dono**. Ajuste o cargo de cada um na aba Equipe.
 - O dono tem o seletor **"Ver como"** no topo para conferir a tela de cada cargo.
 - Para mudar quais abas cada cargo vê, edite a lista `CARGOS` em `baldini-core.js`.

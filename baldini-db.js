@@ -301,6 +301,17 @@
       if (isFb()) return fb.db.collection('equipe').doc(uid).set(data, { merge: true });
       local.put('equipe', uid, data, true);
     },
+    // Cria a conta (e-mail e senha) de outra pessoa sem deslogar o dono: usa uma segunda conexão só para o cadastro
+    async createAccount(email, pass, data) {
+      await ready;
+      if (!isFb()) { const uid = 'demo-' + Date.now(); local.put('equipe', uid, { ...data, email }, false); return uid; }
+      const sec = firebase.apps.find(a => a.name === 'cadastro') || firebase.initializeApp(cfg, 'cadastro');
+      const cred = await sec.auth().createUserWithEmailAndPassword(email, pass);
+      const uid = cred.user.uid;
+      await sec.auth().signOut().catch(() => {});
+      await fb.db.collection('equipe').doc(uid).set({ ...data, email });
+      return uid;
+    },
     async removeMember(uid) {
       await ready;
       if (isFb()) return fb.db.collection('equipe').doc(uid).delete();

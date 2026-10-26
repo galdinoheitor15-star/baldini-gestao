@@ -10,6 +10,9 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   const siteImg = src => (src && !/^https?:/.test(src) ? SITE + src : src);
   const { brl, esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) } = Core;
   const $ = id => document.getElementById(id);
+  // Usuário sem @ vira um e-mail interno da equipe (o Firebase só aceita login por e-mail)
+  const DOMINIO_EQUIPE = '@equipe.baldiniburguer.com';
+  const toLogin = u => { u = String(u || '').trim().toLowerCase(); return u.includes('@') ? u : u + DOMINIO_EQUIPE; };
   // Aceita "R$ 1.234,56", "3,15" ou "12"
   const num = v => Number(String(v ?? '').replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
   const money = v => (window.BaldiniMask ? BaldiniMask.format('money', Math.round((Number(v) || 0) * 100)) : (Number(v) || 0).toFixed(2).replace('.', ','));
@@ -90,9 +93,10 @@ document.addEventListener('gesturestart', e => e.preventDefault());
       'auth/popup-closed-by-user': 'A janela do Google foi fechada antes de terminar.',
       'auth/popup-blocked': 'O navegador bloqueou a janela do Google. Permita pop-ups para este site (ícone na barra de endereço) e toque de novo.',
       'auth/operation-not-supported-in-this-environment': 'Este navegador não abre o login do Google. Abra a gestão no Chrome ou no Safari.',
-      'auth/invalid-credential': 'E-mail ou senha incorretos.',
-      'auth/wrong-password': 'E-mail ou senha incorretos.',
-      'auth/user-not-found': 'E-mail ou senha incorretos.'
+      'auth/invalid-credential': 'Usuário ou senha incorretos.',
+      'auth/invalid-email': 'Usuário ou senha incorretos.',
+      'auth/wrong-password': 'Usuário ou senha incorretos.',
+      'auth/user-not-found': 'Usuário ou senha incorretos.'
     }[err.code] || 'Não foi possível entrar. Tente de novo.';
     $('loginError').textContent = msg;
     $('loginError').hidden = false;
@@ -106,7 +110,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     const f = e.target.elements;
     $('loginError').hidden = true;
     if (!f.email.value.trim() || !f.senha.value) return;
-    try { await DB.signIn(f.email.value.trim(), f.senha.value); } catch (err) { loginError(err); }
+    try { await DB.signIn(toLogin(f.email.value), f.senha.value); } catch (err) { loginError(err); }
   });
   $('copyUid').addEventListener('click', () => {
     navigator.clipboard?.writeText($('pendingUid').textContent).then(() => toast('Código copiado ✅'), () => toast('Selecione e copie o código', true));
@@ -1222,7 +1226,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     const list = [...state.team].sort((a, b) => ordem[Core.cargoOf(a)] - ordem[Core.cargoOf(b)] || String(a.nome || '').localeCompare(b.nome || ''));
     $('teamList').innerHTML = list.length ? list.map(m => {
       const c = Core.cargoOf(m), self = m.uid === me;
-      return `<div class="drow team-row" data-uid="${esc(m.uid)}"><span><b>${esc(m.nome || 'Sem nome')}</b>${self ? ' <span class="tag">você</span>' : ''}<small class="muted">${esc(m.uid)}</small></span>
+      return `<div class="drow team-row" data-uid="${esc(m.uid)}"><span><b>${esc(m.nome || 'Sem nome')}</b>${self ? ' <span class="tag">você</span>' : ''}<small class="muted">${m.usuario ? 'usuário: ' + esc(m.usuario) : esc(m.email || m.uid)}</small></span>
         <span class="team-row__acts"><select data-t="cargo" aria-label="Cargo de ${esc(m.nome || '')}"${self ? ' disabled title="Você não pode mudar o próprio cargo"' : ''}>${Object.entries(Core.CARGOS).map(([k, v]) => `<option value="${k}"${k === c ? ' selected' : ''}>${v.icon} ${v.label}</option>`).join('')}</select>
         ${self ? '' : '<button type="button" class="btn btn--sm btn--danger" data-t="rm">Tirar acesso</button>'}</span></div>`;
     }).join('') : '<p class="muted small">Ninguém cadastrado ainda.</p>';
@@ -1236,6 +1240,32 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     if (!uid || e.target.dataset.t !== 'rm') return;
     const m = state.team.find(x => x.uid === uid);
     if (confirm(`Tirar o acesso de ${m?.nome || 'esta pessoa'} à gestão?`)) safe('Erro', () => DB.removeMember(uid)).then(() => toast('Acesso removido'));
+  });
+  $('accountForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = e.target.elements;
+    const nome = f.nome.value.trim(), usuario = f.usuario.value.trim().toLowerCase(), senha = f.senha.value, cargo = f.cargo.value;
+    if (!nome || !usuario) return toast('Preencha nome e usuário', true);
+    if (!usuario.includes('@') && !/^[a-z0-9._-]{2,40}$/.test(usuario)) return toast('Usuário: só letras sem acento, números, ponto ou traço (ex.: maria.silva)', true);
+    if (senha.length < 6) return toast('A senha precisa ter pelo menos 6 caracteres', true);
+    const btn = e.target.querySelector('[type=submit]');
+    btn.disabled = true;
+    try {
+      await DB.createAccount(toLogin(usuario), senha, { nome, cargo, usuario, liberadoEm: Date.now() });
+      e.target.reset();
+      $('accountInfo').hidden = false;
+      $('accountInfo').innerHTML = `✅ <b>${esc(nome)}</b> (${esc(Core.CARGOS[cargo].label)}) já pode entrar com o usuário <b>${esc(usuario)}</b> e a senha <b>${esc(senha)}</b>. Anote e passe para a pessoa.`;
+      toast(`✅ Acesso de ${nome} criado`);
+    } catch (err) {
+      console.error(err);
+      toast({
+        'auth/email-already-in-use': 'Esse usuário já existe. Escolha outro.',
+        'auth/weak-password': 'Senha fraca: use pelo menos 6 caracteres.',
+        'auth/invalid-email': 'Usuário inválido.',
+        'auth/operation-not-allowed': 'Ative o login por "E-mail/senha" no Firebase (Authentication > Método de login).',
+        'permission-denied': 'Sem permissão: publique as regras novas (firestore.rules) no Firebase.'
+      }[err.code] || 'Não deu para criar: ' + (err.message || err), true);
+    } finally { btn.disabled = false; }
   });
   $('teamForm').addEventListener('submit', e => {
     e.preventDefault();

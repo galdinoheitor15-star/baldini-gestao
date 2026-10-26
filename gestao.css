@@ -444,3 +444,5 @@ button.kpi:hover { border-color: var(--yellow); }
   .top .pill { flex: 1 1 0; min-width: 0; max-width: none; }
   .kpis--stock .kpi strong { font-size: 20px; }
 }
+
+.team-forms { display: grid; gap: 16px; align-content: start; }
