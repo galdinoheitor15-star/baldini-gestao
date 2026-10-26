@@ -297,7 +297,8 @@
     const pagamento = { forma_pagamento: forma, valor_pagamento: t.total };
     if (['03', '04'].includes(forma)) pagamento.tipo_integracao = 2; // maquininha não integrada ao emissor
     if (forma === '01' && order.pagamento?.troco) {
-      const troco = round2(Number(String(order.pagamento.troco).replace(',', '.')) - t.total);
+      // Aceita "50", "50,00" ou "R$ 1.000,00"
+      const troco = round2(Number(String(order.pagamento.troco).replace(/[^\d,]/g, '').replace(',', '.')) - t.total);
       if (troco > 0) pagamento.valor_troco = troco;
     }
     const nf = {
@@ -322,7 +323,8 @@
       }
     }
     // Endereço da entrega sempre vai nas informações adicionais (aparece impresso na nota)
-    const info = [`Pedido ${shortCode(order.id)}`, order.origem ? `via ${order.origem}` : ''];
+    // Sem CPF a NFC-e não identifica o consumidor: o nome vai aqui, impresso na nota
+    const info = [`Pedido ${shortCode(order.id)}`, order.origem ? `via ${order.origem}` : '', order.cliente?.nome ? `Cliente: ${clip(order.cliente.nome, 60)}` : ''];
     if (isDelivery(order)) info.push(`Entrega: ${[order.entrega?.endereco, order.entrega?.bairro, municipio + '-' + uf].filter(Boolean).join(', ')}`);
     else if (order.entrega?.tipo) info.push(order.entrega.tipo);
     nf.informacoes_adicionais_contribuinte = clip(info.filter(Boolean).join(' | '), 500);

@@ -258,4 +258,40 @@
   test('pedido guarda só os números do CPF', () => {
     eq(Core.sanitizeOrder({ cliente: { cpf: '529.982.247-25' } }).cliente.cpf, '52998224725');
   });
+
+  // ---------- Máscaras dos campos ----------
+  const Mask = typeof BaldiniMask !== 'undefined' ? BaldiniMask : require('../mascaras.js');
+  test('WhatsApp só aceita números, no formato e com limite', () => {
+    eq(Mask.format('phone', 'abc81987908900999'), '(81) 98790-8900');
+    eq(Mask.format('phone', '8133334444'), '(81) 3333-4444');
+    eq(Mask.format('phone', 'oi'), '');
+    ok(Mask.validPhone('(81) 98790-8900') && !Mask.validPhone('8198'));
+  });
+  test('CPF e CNPJ formatados, sem letras e com tamanho certo', () => {
+    eq(Mask.format('cpf', '529.982.247-25999xx'), '529.982.247-25');
+    eq(Mask.format('cnpj', 'CNPJ 46723226000111 123'), '46.723.226/0001-11');
+    ok(Mask.validCnpj('46.723.226/0001-11') && !Mask.validCnpj('11.111.111/1111-11') && !Mask.validCnpj('46723226000112'));
+  });
+  test('valores em reais sempre formatados', () => {
+    eq(Mask.format('money', '1250'), 'R$ 12,50');
+    eq(Mask.format('money', 'R$ 12,505'), 'R$ 125,05');
+    eq(Mask.format('money', '123456789'), 'R$ 12.345,67');
+    eq(Mask.format('money', 'abc'), '');
+    eq(Mask.toNumber('R$ 1.234,56'), 1234.56);
+  });
+  test('campos de número não aceitam letras e têm limite', () => {
+    eq(Mask.format('int', '1a2b3c4', 3), '123');
+    eq(Mask.format('ncm', '21069090123'), '2106.90.90');
+    eq(Mask.format('percent', '3,159'), '3,15');
+    eq(Mask.format('percent', '250'), '100');
+  });
+  test('nome do cliente sai na nota mesmo sem CPF', () => {
+    const n = Core.nfcePayload(order({ cliente: { nome: 'Maria Souza' } }), { cnpj: '46723226000111' });
+    ok(!n.cpf_destinatario);
+    ok(n.informacoes_adicionais_contribuinte.includes('Cliente: Maria Souza'));
+  });
+  test('troco digitado como "R$ 100,00" entra certo na nota', () => {
+    const n = Core.nfcePayload(order({ pagamento: { forma: 'Dinheiro', troco: 'R$ 100,00' } }), { cnpj: '1' });
+    eq(n.formas_pagamento[0].valor_troco, 38.02);
+  });
 });

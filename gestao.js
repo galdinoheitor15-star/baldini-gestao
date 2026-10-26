@@ -10,8 +10,9 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   const siteImg = src => (src && !/^https?:/.test(src) ? SITE + src : src);
   const { brl, esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) } = Core;
   const $ = id => document.getElementById(id);
-  const num = v => Number(String(v ?? '').replace(/\./g, '').replace(',', '.')) || 0;
-  const money = v => (Number(v) || 0).toFixed(2).replace('.', ',');
+  // Aceita "R$ 1.234,56", "3,15" ou "12"
+  const num = v => Number(String(v ?? '').replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+  const money = v => (window.BaldiniMask ? BaldiniMask.format('money', Math.round((Number(v) || 0) * 100)) : (Number(v) || 0).toFixed(2).replace('.', ','));
   const products = new Map();
   MENU.forEach(c => c.items.forEach(p => products.set(p.id, { ...p, cat: c.id })));
 
@@ -349,8 +350,8 @@ document.addEventListener('gesturestart', e => e.preventDefault());
       ${o.obs ? `<p class="note">📝 ${esc(o.obs)}</p>` : ''}
       ${o.recompensa ? `<p class="note">🎁 Quer trocar pontos por: ${esc(o.recompensa)}</p>` : ''}
       <div class="grid3">
-        ${d ? `<label class="field">Taxa de entrega<input data-m="taxa" inputmode="decimal" value="${money(o.entrega?.taxa)}"></label>` : ''}
-        <label class="field">Desconto<input data-m="desconto" inputmode="decimal" value="${money(o.desconto)}"></label>
+        ${d ? `<label class="field">Taxa de entrega<input data-m="taxa" data-mask="money" value="${money(o.entrega?.taxa)}"></label>` : ''}
+        <label class="field">Desconto<input data-m="desconto" data-mask="money" value="${money(o.desconto)}"></label>
         <div class="total"><span>Total</span><strong>${brl(o.total)}</strong></div>
       </div>
       <h4>Pagamento ${payBadge(o)}</h4>
@@ -544,7 +545,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
           ${n.items.map(i => `<tr><td>${esc(i.descricao)}<br><small class="muted">NCM ${esc(i.codigo_ncm)} · CFOP ${esc(i.cfop)} · CSOSN ${esc(i.icms_situacao_tributaria)}</small></td><td>${i.quantidade_comercial}</td><td>${brl(i.valor_unitario_comercial)}</td><td>${brl(i.valor_bruto)}</td></tr>`).join('')}
         </tbody></table>
         <p>${n.valor_frete ? `Frete: ${brl(n.valor_frete)}<br>` : ''}${n.valor_desconto ? `Desconto: ${brl(n.valor_desconto)}<br>` : ''}<b>Total: ${brl(p.valor_pagamento)}</b><br>Pagamento: ${FORMA_LABEL[p.forma_pagamento] || p.forma_pagamento}${p.valor_troco ? ` · troco ${brl(p.valor_troco)}` : ''}</p>
-        <p>${n.cpf_destinatario ? `Consumidor: ${esc(n.nome_destinatario || '')} · CPF ${esc(n.cpf_destinatario.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4'))}${n.logradouro_destinatario ? `<br>${esc(n.logradouro_destinatario)}, ${esc(n.numero_destinatario)} - ${esc(n.bairro_destinatario)}, ${esc(n.municipio_destinatario)}-${esc(n.uf_destinatario)}` : ''}` : 'Consumidor não identificado'}</p>
+        <p>${n.cpf_destinatario ? `Consumidor: ${esc(n.nome_destinatario || '')} · CPF ${esc(n.cpf_destinatario.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4'))}${n.logradouro_destinatario ? `<br>${esc(n.logradouro_destinatario)}, ${esc(n.numero_destinatario)} - ${esc(n.bairro_destinatario)}, ${esc(n.municipio_destinatario)}-${esc(n.uf_destinatario)}` : ''}` : `Consumidor: ${esc((o.cliente?.nome || '').trim() || 'não identificado')}${o.cliente?.nome ? ' <small class="muted">(sem CPF)</small>' : ''}`}</p>
         <p class="muted small">${esc(n.informacoes_adicionais_contribuinte || '')}</p>
       </div>`;
     if (!$('orderModal').open) $('orderModal').showModal();
@@ -647,7 +648,10 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   $('posForm').addEventListener('submit', async e => {
     e.preventDefault();
     const f = e.target.elements;
-    const err = !posCart.length ? 'Adicione pelo menos um item.' : (f.entrega.value === 'Delivery' && (!f.endereco.value.trim() || !f.bairro.value.trim())) ? 'Para delivery, preencha endereço e bairro.' : '';
+    const err = !posCart.length ? 'Adicione pelo menos um item.'
+      : (f.entrega.value === 'Delivery' && (!f.endereco.value.trim() || !f.bairro.value.trim())) ? 'Para delivery, preencha endereço e bairro.'
+      : (f.telefone.value && !BaldiniMask.validPhone(f.telefone.value)) ? 'WhatsApp inválido: use DDD + número, ex.: (81) 98790-8900.'
+      : (f.cpf.value && !Core.validCpf(f.cpf.value)) ? 'CPF inválido: confira os números ou deixe em branco.' : '';
     $('posError').textContent = err; $('posError').hidden = !err;
     if (err) return;
     const o = posOrder();
@@ -711,7 +715,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     const f = e.target.elements;
     const [y, m, d] = f.data.value.split('-').map(Number);
     const item = { desc: f.desc.value.trim(), valor: num(f.valor.value), data: new Date(y, m - 1, d, 12).getTime() };
-    if (!item.desc || item.valor <= 0) return toast('Preencha descrição e valor', true);
+    if (!item.desc || item.valor <= 0 || !y) return toast('Preencha descrição, valor e data', true);
     safe('Erro ao salvar despesa', async () => { await DB.addExpense(item); f.desc.value = ''; f.valor.value = ''; toast('Despesa salva'); });
   });
   $('expenseList').addEventListener('click', e => { const id = e.target.closest('[data-rmx]')?.dataset.rmx; if (id && confirm('Remover despesa?')) safe('Erro', () => DB.deleteExpense(id)); });
@@ -720,8 +724,8 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     const c = state.cfg.custos;
     const extras = new Set();
     MENU.forEach(cat => cat.items.forEach(p => (p.groups || []).forEach(g => { if (/adicional/i.test(g.name)) g.options.forEach(o => extras.add(o.name.replace(/\s*\(extra\)/i, ''))); })));
-    $('costList').innerHTML = MENU.map(cat => `<h4>${esc(cat.name)}</h4>${cat.items.map(p => `<label class="crow"><span>${esc(p.name)} <small class="muted">${p.price ? brl(p.price) : ''}</small></span><input data-cost="${p.id}" inputmode="decimal" placeholder="0,00" value="${c[p.id] ? money(c[p.id]) : ''}"></label>`).join('')}`).join('') +
-      `<h4>Adicionais</h4>${[...extras].map(n => `<label class="crow"><span>${esc(n)}</span><input data-cost="opt:${esc(n)}" inputmode="decimal" placeholder="0,00" value="${c['opt:' + n] ? money(c['opt:' + n]) : ''}"></label>`).join('')}`;
+    $('costList').innerHTML = MENU.map(cat => `<h4>${esc(cat.name)}</h4>${cat.items.map(p => `<label class="crow"><span>${esc(p.name)} <small class="muted">${p.price ? brl(p.price) : ''}</small></span><input data-cost="${p.id}" data-mask="money" placeholder="R$ 0,00" value="${c[p.id] ? money(c[p.id]) : ''}"></label>`).join('')}`).join('') +
+      `<h4>Adicionais</h4>${[...extras].map(n => `<label class="crow"><span>${esc(n)}</span><input data-cost="opt:${esc(n)}" data-mask="money" placeholder="R$ 0,00" value="${c['opt:' + n] ? money(c['opt:' + n]) : ''}"></label>`).join('')}`;
   }
   $('saveCosts').addEventListener('click', () => {
     const custos = {};
@@ -751,7 +755,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   // ---------- Configurações ----------
   function renderConfig() {
     const f = $('configForm').elements, l = state.cfg.loja, nf = state.cfg.nf;
-    $('feeFields').innerHTML = Object.entries(taxas()).map(([k, v]) => `<label class="field">${k}<input data-fee="${k}" inputmode="decimal" value="${String(v).replace('.', ',')}"></label>`).join('');
+    $('feeFields').innerHTML = Object.entries(taxas()).map(([k, v]) => `<label class="field">${k}<input data-fee="${k}" data-mask="percent" value="${String(v).replace('.', ',')}"></label>`).join('');
     f.infinitepayHandle.value = l.infinitepayHandle || '';
     f.pagamentoOnline.checked = !!l.pagamentoOnline;
     f.webhookUrl.value = l.webhookUrl || '';
@@ -760,7 +764,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     const a = autoCfg();
     f.autoAtivo.checked = !!a.ativo;
     f.autoNovo.value = a.novo; f.autoPreparo.value = a.preparo; f.autoPronto.value = a.pronto; f.autoEntrega.value = a.entrega;
-    f.cnpj.value = nf.cnpj || ''; f.ncm.value = nf.ncm || ''; f.csosn.value = nf.csosn || ''; f.nfAuto.checked = !!nf.nfAuto;
+    f.cnpj.value = nf.cnpj || ''; f.ncm.value = nf.ncm || ''; f.csosn.value = nf.csosn || '102'; BaldiniMask.apply($('configForm')); f.nfAuto.checked = !!nf.nfAuto;
     f.nfQuando.value = nf.nfQuando || 'pedido'; f.emissor.value = nf.emissor || 'simulacao';
   }
   $('configForm').addEventListener('submit', e => {
@@ -771,7 +775,9 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     const loja = { infinitepayHandle: f.infinitepayHandle.value.trim().replace(/^\$/, ''), pagamentoOnline: f.pagamentoOnline.checked, webhookUrl: f.webhookUrl.value.trim(), custoEntrega: num(f.custoEntrega.value), ifoodAtivo: f.ifoodAtivo.checked, taxas: fees };
     const mins = (v, d) => { const n = num(v); return v === '' || n < 0 ? d : Math.min(600, n); };
     loja.automacao = { ativo: f.autoAtivo.checked, novo: mins(f.autoNovo.value, Core.DEFAULT_AUTO.novo), preparo: mins(f.autoPreparo.value, Core.DEFAULT_AUTO.preparo), pronto: mins(f.autoPronto.value, Core.DEFAULT_AUTO.pronto), entrega: mins(f.autoEntrega.value, Core.DEFAULT_AUTO.entrega) };
-    const nf = { cnpj: f.cnpj.value.trim(), ncm: f.ncm.value.trim(), csosn: f.csosn.value.trim(), nfAuto: f.nfAuto.checked, nfQuando: f.nfQuando.value, emissor: f.emissor.value };
+    const nf = { cnpj: BaldiniMask.onlyDigits(f.cnpj.value), ncm: BaldiniMask.onlyDigits(f.ncm.value), csosn: f.csosn.value, nfAuto: f.nfAuto.checked, nfQuando: f.nfQuando.value, emissor: f.emissor.value };
+    if (nf.cnpj && !BaldiniMask.validCnpj(nf.cnpj)) return toast('CNPJ inválido: confira os números', true);
+    if (nf.ncm && nf.ncm.length !== 8) return toast('O NCM tem 8 números (ex.: 2106.90.90)', true);
     if (loja.pagamentoOnline && !loja.infinitepayHandle) return toast('Para pagar online, preencha a InfiniteTag', true);
     if (nf.nfAuto && nf.emissor === 'focus' && !nf.cnpj) return toast('Para nota de verdade, preencha o CNPJ', true);
     safe('Erro ao salvar', async () => {

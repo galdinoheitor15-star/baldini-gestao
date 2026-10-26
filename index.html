@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="gestao.css?v=20261024i">
+  <link rel="stylesheet" href="gestao.css?v=20261026a">
 </head>
 <body>
 
@@ -37,8 +37,8 @@
     </button>
     <details class="login__alt">
       <summary>Entrar com e-mail e senha</summary>
-      <label class="field">E-mail<input type="email" name="email" autocomplete="username"></label>
-      <label class="field">Senha<input type="password" name="senha" autocomplete="current-password"></label>
+      <label class="field">E-mail<input type="email" name="email" autocomplete="username" maxlength="120"></label>
+      <label class="field">Senha<input type="password" name="senha" autocomplete="current-password" maxlength="100"></label>
       <button class="btn btn--ghost btn--block" type="submit">Entrar</button>
     </details>
     <p class="error" id="loginError" hidden></p>
@@ -97,7 +97,7 @@
   <section class="view" id="view-novo" hidden>
     <div class="pos">
       <div class="pos__menu">
-        <input class="search" id="posSearch" type="search" placeholder="Buscar no cardápio..." aria-label="Buscar produto">
+        <input class="search" id="posSearch" type="search" placeholder="Buscar no cardápio..." aria-label="Buscar produto" maxlength="60">
         <div class="pos__cats" id="posCats"></div>
         <div class="pos__grid" id="posGrid"></div>
       </div>
@@ -113,20 +113,20 @@
             <select name="entrega"><option>Delivery</option><option>Retirada na Loja (Av. Rosita Freire, 460)</option><option>Retirada no Trailer (Av. Murilo Silva)</option><option>Comer no local</option></select>
           </label>
           <label class="field">Nome<input name="nome" maxlength="80"></label>
-          <label class="field">WhatsApp<input name="telefone" inputmode="tel" maxlength="30"></label>
-          <label class="field">CPF na nota (opcional)<input name="cpf" inputmode="numeric" maxlength="14"></label>
+          <label class="field">WhatsApp<input name="telefone" data-mask="phone" placeholder="(81) 98790-8900"></label>
+          <label class="field">CPF na nota (opcional)<input name="cpf" data-mask="cpf" placeholder="000.000.000-00"></label>
         </div>
         <div class="grid2" id="posAddr">
           <label class="field">Endereço<input name="endereco" maxlength="160"></label>
           <label class="field">Bairro<input name="bairro" maxlength="80"></label>
-          <label class="field">Taxa de entrega (R$)<input name="taxa" inputmode="decimal" placeholder="0,00"></label>
+          <label class="field">Taxa de entrega (R$)<input name="taxa" data-mask="money" placeholder="R$ 0,00"></label>
           <label class="field">Referência<input name="referencia" maxlength="160"></label>
         </div>
         <div class="grid2">
           <label class="field">Pagamento
             <select name="pagamento"><option>Pix</option><option>Débito</option><option>Crédito</option><option>Dinheiro</option><option>Online</option></select>
           </label>
-          <label class="field">Desconto (R$)<input name="desconto" inputmode="decimal" placeholder="0,00"></label>
+          <label class="field">Desconto (R$)<input name="desconto" data-mask="money" placeholder="R$ 0,00"></label>
         </div>
         <label class="field">Observações<textarea name="obs" rows="2" maxlength="300"></textarea></label>
         <label class="check"><input type="checkbox" name="pago"> Já está pago</label>
@@ -170,7 +170,7 @@
         <h2>Despesas</h2>
         <form class="inline-form" id="expenseForm">
           <input name="desc" placeholder="Ex.: gás, aluguel, pão" maxlength="80" required aria-label="Descrição">
-          <input name="valor" inputmode="decimal" placeholder="R$" required aria-label="Valor">
+          <input name="valor" data-mask="money" placeholder="R$ 0,00" required aria-label="Valor">
           <input name="data" type="date" required aria-label="Data">
           <button class="btn btn--sm btn--yellow" type="submit">Adicionar</button>
         </form>
@@ -206,7 +206,7 @@
       <div class="card">
         <h2>Testar o assistente do site</h2>
         <p class="muted small">É o bot que aparece no botão "🍔 Ajuda" do site. Digite como se fosse um cliente.</p>
-        <form class="inline-form" id="botTest"><input name="q" placeholder="Ex.: vocês abrem que horas?" aria-label="Mensagem de teste"><button class="btn btn--sm btn--yellow" type="submit">Testar</button></form>
+        <form class="inline-form" id="botTest"><input name="q" placeholder="Ex.: vocês abrem que horas?" aria-label="Mensagem de teste" maxlength="120"><button class="btn btn--sm btn--yellow" type="submit">Testar</button></form>
         <div class="bot-preview" id="botPreview"></div>
       </div>
     </div>
@@ -218,17 +218,17 @@
       <h2>Maquininha InfinitePay (laranjinha)</h2>
       <label class="field">InfiniteTag (sem o $)<input name="infinitepayHandle" placeholder="baldiniburguer" maxlength="60"></label>
       <label class="check"><input type="checkbox" name="pagamentoOnline"> Mostrar "Pagar online agora" no site (link Pix/cartão da InfinitePay)</label>
-      <label class="field">URL do webhook (opcional, da função do Firebase)<input name="webhookUrl" placeholder="https://southamerica-east1-SEU-PROJETO.cloudfunctions.net/infinitepayWebhook"></label>
+      <label class="field">URL do webhook (opcional, da função do Firebase)<input name="webhookUrl" placeholder="https://southamerica-east1-SEU-PROJETO.cloudfunctions.net/infinitepayWebhook" maxlength="300"></label>
 
       <h2>Taxas por forma de pagamento (%)</h2>
       <div class="grid3" id="feeFields"></div>
-      <label class="field">Custo do motoboy por entrega (R$)<input name="custoEntrega" inputmode="decimal" placeholder="0,00"></label>
+      <label class="field">Custo do motoboy por entrega (R$)<input name="custoEntrega" data-mask="money" placeholder="R$ 0,00"></label>
 
       <h2>Nota fiscal</h2>
       <div class="grid3">
-        <label class="field">CNPJ<input name="cnpj" placeholder="46.723.226/0001-11"></label>
-        <label class="field">NCM padrão<input name="ncm" placeholder="21069090"></label>
-        <label class="field">CSOSN (Simples)<input name="csosn" placeholder="102"></label>
+        <label class="field">CNPJ<input name="cnpj" data-mask="cnpj" placeholder="46.723.226/0001-11"></label>
+        <label class="field">NCM padrão<input name="ncm" data-mask="ncm" placeholder="2106.90.90"></label>
+        <label class="field">Enquadramento (CSOSN do Simples)<select name="csosn"><option value="102">102 - Simples sem crédito (mais comum)</option><option value="101">101 - Simples com crédito</option><option value="103">103 - Isenção por faixa de receita</option><option value="300">300 - Imune</option><option value="400">400 - Não tributada</option><option value="500">500 - ICMS já cobrado (substituição)</option><option value="900">900 - Outros</option></select></label>
       </div>
       <label class="check"><input type="checkbox" name="nfAuto"> Emitir a nota fiscal sozinha (com produtos, pagamento, endereço e CPF do cliente)</label>
       <div class="grid2">
@@ -245,10 +245,10 @@
       <label class="check"><input type="checkbox" name="autoAtivo"> Avançar o status dos pedidos automaticamente</label>
       <p class="muted small">Minutos em cada etapa antes de passar para a próxima. Dá para mudar à mão a qualquer momento: o tempo recomeça dali. Pedidos do iFood seguem o próprio iFood.</p>
       <div class="grid3 grid4">
-        <label class="field">🔔 Novo → Em preparo<input name="autoNovo" inputmode="numeric" placeholder="1"></label>
-        <label class="field">🔥 Em preparo → Pronto<input name="autoPreparo" inputmode="numeric" placeholder="15"></label>
-        <label class="field">✅ Pronto → Saiu p/ entrega (ou Concluído na retirada)<input name="autoPronto" inputmode="numeric" placeholder="3"></label>
-        <label class="field">🛵 Saiu p/ entrega → Concluído<input name="autoEntrega" inputmode="numeric" placeholder="25"></label>
+        <label class="field">🔔 Novo → Em preparo<input name="autoNovo" data-mask="int" data-max="3" placeholder="1"></label>
+        <label class="field">🔥 Em preparo → Pronto<input name="autoPreparo" data-mask="int" data-max="3" placeholder="15"></label>
+        <label class="field">✅ Pronto → Saiu p/ entrega (ou Concluído na retirada)<input name="autoPronto" data-mask="int" data-max="3" placeholder="3"></label>
+        <label class="field">🛵 Saiu p/ entrega → Concluído<input name="autoEntrega" data-mask="int" data-max="3" placeholder="25"></label>
       </div>
 
       <h2>iFood</h2>
@@ -281,11 +281,12 @@
 
 <!-- O cardápio vem do site de pedidos: mudou lá, muda aqui -->
 <script src="https://galdinoheitor15-star.github.io/baldini-burguer/menu-data.js"></script>
-<script src="baldini-core.js?v=20261024i"></script>
-<script src="firebase-config.js?v=20261024i"></script>
+<script src="mascaras.js?v=20261026a"></script>
+<script src="baldini-core.js?v=20261026a"></script>
+<script src="firebase-config.js?v=20261026a"></script>
 <script>window.BALDINI_OFFLINE = true;</script>
-<script src="baldini-db.js?v=20261024i"></script>
+<script src="baldini-db.js?v=20261026a"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
-<script src="gestao.js?v=20261024i" defer></script>
+<script src="gestao.js?v=20261026a" defer></script>
 </body>
 </html>
