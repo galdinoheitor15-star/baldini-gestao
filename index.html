@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="gestao.css?v=20261026a">
+  <link rel="stylesheet" href="gestao.css?v=20261026b">
 </head>
 <body>
 
@@ -65,6 +65,7 @@
   <header class="top">
     <a class="top__brand" href="./"><img src="img/logo.jpg" alt="" width="40" height="40"><span>Gestão <b>Baldini</b></span></a>
     <span class="pill" id="modeBadge"></span>
+    <span class="role" id="roleBox"><span id="roleLabel"></span><select id="roleView" aria-label="Ver a gestão como" hidden></select></span>
     <div class="top__right">
       <button type="button" class="icon-btn" id="syncBtn" title="Atualizar pedidos agora" aria-label="Atualizar pedidos agora">🔄</button>
       <button type="button" class="icon-btn" id="soundBtn" title="Som de novo pedido">🔔</button>
@@ -75,11 +76,15 @@
 
   <nav class="tabs" id="tabs">
     <button type="button" data-tab="pedidos" class="is-on">📋 Pedidos <em id="tabCount"></em></button>
+    <button type="button" data-tab="comandas">🍽 Mesas e comandas <em id="tabCmdCount"></em></button>
+    <button type="button" data-tab="caixa">💵 Caixa <em id="tabCaixaCount"></em></button>
+    <button type="button" data-tab="estoque">📦 Estoque <em id="tabStockCount"></em></button>
     <button type="button" data-tab="novo">➕ Lançar pedido</button>
     <button type="button" data-tab="entregas">🛵 Entregadores</button>
     <button type="button" data-tab="lucro">💰 Lucro</button>
     <button type="button" data-tab="nf">🧾 Nota fiscal</button>
     <button type="button" data-tab="bot">🤖 Bot e mensagens</button>
+    <button type="button" data-tab="equipe">👥 Equipe</button>
     <button type="button" data-tab="config">⚙️ Configurações</button>
     <button type="button" data-tab="sistema">🩺 Sistema</button>
   </nav>
@@ -91,6 +96,65 @@
       <summary>Finalizados hoje <span id="doneCount"></span></summary>
       <div class="done__list" id="doneList"></div>
     </details>
+  </section>
+
+  <!-- Mesas e comandas (funcionário): tudo da mesa numa tela só -->
+  <section class="view" id="view-comandas" hidden>
+    <div class="row cmd-top">
+      <div class="cmd-sum" id="cmdSum"></div>
+      <div class="seg" id="cmdFilter">
+        <button type="button" data-f="todas" class="is-on">Todas</button>
+        <button type="button" data-f="ocupadas">Ocupadas</button>
+        <button type="button" data-f="livres">Livres</button>
+      </div>
+      <button type="button" class="btn btn--yellow btn--sm" id="newComanda">➕ Nova comanda avulsa</button>
+    </div>
+    <div class="tables" id="tables"></div>
+    <p class="muted small cmd-legend"><span class="dot dot--livre"></span>Livre <span class="dot dot--ocupada"></span>Ocupada <span class="dot dot--pronto"></span>Pedido pronto p/ servir <span class="dot dot--conta"></span>Pediu a conta</p>
+  </section>
+
+  <!-- Caixa e desempenho (gerente) -->
+  <section class="view" id="view-caixa" hidden>
+    <div class="row">
+      <div class="seg" id="caixaSeg">
+        <button type="button" data-p="hoje" class="is-on">Hoje</button>
+        <button type="button" data-p="7d">7 dias</button>
+        <button type="button" data-p="mes">Este mês</button>
+        <button type="button" data-p="mesPassado">Mês passado</button>
+      </div>
+    </div>
+    <div class="kpis" id="caixaKpis"></div>
+    <div class="split">
+      <div class="card">
+        <h2>Faturamento por forma de pagamento</h2>
+        <div class="pie" id="pie"></div>
+      </div>
+      <div class="card">
+        <h2>Contas para receber</h2>
+        <div id="caixaOpen"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Últimos recebimentos</h2>
+      <div id="caixaList"></div>
+    </div>
+  </section>
+
+  <!-- Estoque (gerente) -->
+  <section class="view" id="view-estoque" hidden>
+    <div class="kpis kpis--stock" id="stockKpis"></div>
+    <div class="row">
+      <div class="seg" id="stockFilter">
+        <button type="button" data-f="todos" class="is-on">Todos</button>
+        <button type="button" data-f="falta">Em falta</button>
+        <button type="button" data-f="baixo">Acabando</button>
+        <button type="button" data-f="ok">Disponíveis</button>
+        <button type="button" data-f="livre">Sem controle</button>
+      </div>
+      <input class="search stock-search" id="stockSearch" type="search" placeholder="Buscar produto..." aria-label="Buscar produto no estoque" maxlength="60">
+    </div>
+    <p class="muted small">Digite a quantidade que tem de cada produto. Cada venda (site, balcão ou mesa) dá baixa sozinha e o pedido cancelado devolve. <b>Mínimo</b> é a partir de quando o produto aparece como "acabando". Produto sem quantidade fica "sem controle" e nunca aparece como em falta.</p>
+    <div id="stockList"></div>
   </section>
 
   <!-- Lançar pedido -->
@@ -212,9 +276,33 @@
     </div>
   </section>
 
+  <!-- Equipe (dono) -->
+  <section class="view" id="view-equipe" hidden>
+    <div class="split">
+      <div class="card">
+        <h2>Pessoas da equipe</h2>
+        <p class="muted small">O cargo define o que cada um vê: <b>Funcionário</b> → mesas/comandas e pedidos · <b>Gerente</b> → caixa, desempenho, estoque, mesas e pedidos · <b>Dono</b> → tudo.</p>
+        <div id="teamList"></div>
+      </div>
+      <form class="card" id="teamForm">
+        <h2>Liberar acesso</h2>
+        <p class="muted small">A pessoa entra na gestão com a conta Google dela e aparece um código na tela. Peça esse código e cole aqui.</p>
+        <label class="field">Código da pessoa<input name="uid" maxlength="128" required placeholder="Ex.: 8fK2l..."></label>
+        <label class="field">Nome<input name="nome" maxlength="60" required placeholder="Ex.: João"></label>
+        <label class="field">Cargo
+          <select name="cargo"><option value="funcionario">🧑‍🍳 Funcionário</option><option value="gerente">🧑‍💼 Gerente</option><option value="dono">👑 Dono</option></select>
+        </label>
+        <button class="btn btn--yellow btn--block" type="submit">Liberar acesso</button>
+      </form>
+    </div>
+  </section>
+
   <!-- Configurações -->
   <section class="view" id="view-config" hidden>
     <form class="card config" id="configForm">
+      <h2>Salão</h2>
+      <label class="field">Quantidade de mesas<input name="mesas" data-mask="int" data-max="3" placeholder="12"></label>
+
       <h2>Maquininha InfinitePay (laranjinha)</h2>
       <label class="field">InfiniteTag (sem o $)<input name="infinitepayHandle" placeholder="baldiniburguer" maxlength="60"></label>
       <label class="check"><input type="checkbox" name="pagamentoOnline"> Mostrar "Pagar online agora" no site (link Pix/cartão da InfinitePay)</label>
@@ -273,6 +361,21 @@
 
 <!-- Detalhe do pedido -->
 <dialog class="modal" id="orderModal"><div id="orderBody"></div></dialog>
+<!-- Mesa / comanda aberta -->
+<dialog class="modal modal--cmd" id="cmdModal">
+  <div class="cmd">
+    <header class="modal__head cmd__head"><h2 id="cmdTitle"></h2><button type="button" class="icon-btn" data-c="close" aria-label="Fechar">✕</button></header>
+    <div class="cmd__menu">
+      <input class="search" id="cmdSearch" type="search" placeholder="Buscar no cardápio..." aria-label="Buscar produto" maxlength="60">
+      <div class="pos__cats" id="cmdCats"></div>
+      <div class="pos__grid" id="cmdGrid"></div>
+    </div>
+    <div class="cmd__side" id="cmdSide"></div>
+    <button type="button" class="pos__bar" id="cmdBar" hidden><span>🧾 <b id="cmdBarCount">0</b> <span id="cmdBarLabel">itens</span> · Ver e enviar</span><strong id="cmdBarTotal">R$ 0,00</strong></button>
+  </div>
+</dialog>
+<!-- Fechar conta (caixa) -->
+<dialog class="modal" id="payModal"><div id="payBody"></div></dialog>
 <!-- Escolha de opções no lançamento -->
 <dialog class="modal" id="pickModal"><div id="pickBody"></div></dialog>
 <!-- Comanda para imprimir -->
@@ -281,12 +384,12 @@
 
 <!-- O cardápio vem do site de pedidos: mudou lá, muda aqui -->
 <script src="https://galdinoheitor15-star.github.io/baldini-burguer/menu-data.js"></script>
-<script src="mascaras.js?v=20261026a"></script>
-<script src="baldini-core.js?v=20261026a"></script>
-<script src="firebase-config.js?v=20261026a"></script>
+<script src="mascaras.js?v=20261026b"></script>
+<script src="baldini-core.js?v=20261026b"></script>
+<script src="firebase-config.js?v=20261026b"></script>
 <script>window.BALDINI_OFFLINE = true;</script>
-<script src="baldini-db.js?v=20261026a"></script>
+<script src="baldini-db.js?v=20261026b"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
-<script src="gestao.js?v=20261026a" defer></script>
+<script src="gestao.js?v=20261026b" defer></script>
 </body>
 </html>

@@ -280,10 +280,82 @@
       });
     },
     // Só quem tem documento em /equipe/{uid} vê os pedidos
-    async isStaff(uid) {
+    async isStaff(uid) { return !!(await api.getMember(uid)); },
+    // Cadastro da pessoa na equipe ({ nome, cargo }) ou null se ainda não foi liberada
+    async getMember(uid) {
       await ready;
-      if (!isFb()) return true;
-      try { return (await fb.db.collection('equipe').doc(uid).get()).exists; } catch { return false; }
+      if (!isFb()) return { nome: 'Demonstração', cargo: 'dono' };
+      try { const d = await fb.db.collection('equipe').doc(uid).get(); return d.exists ? { ...d.data(), uid } : null; } catch { return null; }
+    },
+    // Equipe inteira (só o dono enxerga)
+    watchTeam(cb, onError = warn) {
+      let stop = () => {};
+      ready.then(() => {
+        if (isFb()) stop = fb.db.collection('equipe').onSnapshot(s => cb(docs(s).map(d => ({ ...d, uid: d.id }))), onError);
+        else stop = localWatch(() => cb(Object.entries(local.col('equipe')).map(([uid, d]) => ({ ...d, uid }))));
+      });
+      return () => stop();
+    },
+    async setMember(uid, data) {
+      await ready;
+      if (isFb()) return fb.db.collection('equipe').doc(uid).set(data, { merge: true });
+      local.put('equipe', uid, data, true);
+    },
+    async removeMember(uid) {
+      await ready;
+      if (isFb()) return fb.db.collection('equipe').doc(uid).delete();
+      local.del('equipe', uid);
+    },
+
+    // ----- Estoque (config/estoque = { desde, itens: { produtoId: { qtd, min } } }) -----
+    // Soma ou tira quantidades: { produtoId: +2, outro: -1 }. Com vários aparelhos, nada se perde.
+    async addStock(deltas) {
+      await ready;
+      const ids = Object.keys(deltas).filter(id => deltas[id]);
+      if (!ids.length) return;
+      if (isFb()) {
+        const inc = firebase.firestore.FieldValue.increment;
+        const patch = {};
+        ids.forEach(id => { patch[id] = { qtd: inc(deltas[id]) }; });
+        return fb.db.collection('config').doc('estoque').set({ itens: patch }, { merge: true });
+      }
+      const cur = local.col('config').estoque || {};
+      const itens = { ...(cur.itens || {}) };
+      ids.forEach(id => { itens[id] = { ...(itens[id] || {}), qtd: (Number(itens[id]?.qtd) || 0) + deltas[id] }; });
+      local.put('config', 'estoque', { ...cur, itens }, false);
+    },
+    // Grava quantidade e mínimo de um produto; data = null para de controlar o produto
+    async setStockItem(id, data) {
+      await ready;
+      if (isFb()) {
+        const ref = fb.db.collection('config').doc('estoque');
+        const snap = await ref.get();
+        const desde = snap.exists && snap.data().desde ? {} : { desde: Date.now() };
+        return ref.set({ ...desde, itens: { [id]: data || firebase.firestore.FieldValue.delete() } }, { merge: true });
+      }
+      const cur = local.col('config').estoque || {};
+      const itens = { ...(cur.itens || {}) };
+      if (data) itens[id] = data; else delete itens[id];
+      local.put('config', 'estoque', { desde: cur.desde || Date.now(), ...cur, itens }, false);
+    },
+    // Marca no pedido que o estoque já foi baixado (baixar = true) ou devolvido (false).
+    // Com a gestão aberta em vários aparelhos, só um faz a baixa.
+    async claimStock(id, baixar = true) {
+      await ready;
+      const pode = o => !!o && !!o.estoqueBaixado !== baixar;
+      if (isFb()) {
+        const ref = fb.db.collection('pedidos').doc(id);
+        return fb.db.runTransaction(async t => {
+          const d = await t.get(ref);
+          if (!d.exists || !pode(d.data())) return false;
+          t.update(ref, { estoqueBaixado: baixar, atualizadoEm: Date.now() });
+          return true;
+        });
+      }
+      const cur = local.col('pedidos')[id];
+      if (!pode(cur)) return false;
+      local.put('pedidos', id, { ...cur, estoqueBaixado: baixar }, false);
+      return true;
     },
     async signIn(email, pass) { await ready; if (isFb()) return fb.auth.signInWithEmailAndPassword(email, pass); },
     async signInGoogle() {

@@ -88,7 +88,7 @@
     }));
     const clean = {
       id: clip(o.id, 40),
-      origem: ['site', 'balcao', 'whatsapp', 'ifood'].includes(o.origem) ? o.origem : 'site',
+      origem: ['site', 'balcao', 'whatsapp', 'ifood', 'mesa'].includes(o.origem) ? o.origem : 'site',
       status: STATUS_IDS.includes(o.status) ? o.status : 'novo',
       cliente: { nome: clip(o.cliente?.nome, 80), telefone: clip(o.cliente?.telefone, 30), cpf: clip(String(o.cliente?.cpf || '').replace(/\D/g, ''), 11) },
       entrega: {
@@ -99,7 +99,8 @@
       itens,
       pagamento: {
         forma: clip(o.pagamento?.forma || 'Pix', 40), troco: clip(o.pagamento?.troco, 20), pago: !!o.pagamento?.pago,
-        metodo: clip(o.pagamento?.metodo, 30), link: clip(o.pagamento?.link, 300), transacao: clip(o.pagamento?.transacao, 80)
+        metodo: clip(o.pagamento?.metodo, 30), link: clip(o.pagamento?.link, 300), transacao: clip(o.pagamento?.transacao, 80),
+        ...(o.pagamento?.em ? { em: Number(o.pagamento.em) || 0 } : {})
       },
       desconto: round2(Math.max(0, Number(o.desconto) || 0)),
       recompensa: clip(o.recompensa, 60),
@@ -111,6 +112,13 @@
     if (o.externoId) clean.externoId = clip(o.externoId, 80);
     if (o.nf) clean.nf = o.nf;
     if (o.entregador) clean.entregador = o.entregador;
+    if (o.comanda) {
+      clean.comanda = {
+        tipo: o.comanda.tipo === 'comanda' ? 'comanda' : 'mesa', numero: Math.max(1, Math.floor(Number(o.comanda.numero) || 1)),
+        aberta: o.comanda.aberta !== false, nome: clip(o.comanda.nome, 60), contaPedida: !!o.comanda.contaPedida
+      };
+    }
+    if (o.estoqueBaixado) clean.estoqueBaixado = true;
     Object.assign(clean, totalsOf(clean));
     return clean;
   }
@@ -333,11 +341,85 @@
   // Quando a nota deve sair sozinha: 'pedido' (assim que o pedido chega), 'pago' ou 'concluido'
   function shouldAutoEmit(order, { nfAuto, nfQuando = 'pedido' } = {}) {
     if (!nfAuto || order.nf?.status || !(order.itens || []).length) return false;
+    // Mesa/comanda: a nota sai só quando a conta fecha
+    if (order.comanda?.aberta) return false;
     if (['montando', 'cancelado'].includes(order.status)) return false;
     if (nfQuando === 'pago') return !!order.pagamento?.pago;
     if (nfQuando === 'concluido') return order.status === 'concluido';
     return true;
   }
 
-  return { brl, round2, norm, STATUS, STATUS_IDS, statusInfo, nextStatus, isDelivery, countsAsSale, DEFAULT_AUTO, enteredAt, autoStep, newOrderId, shortCode, unitPrice, missingGroup, subtotalOf, totalsOf, sanitizeOrder, DEFAULT_TAXAS, payKey, feeOf, costOf, profitReport, hourIn, isOpen, MSG, fillMsg, whatsLink, findProducts, botReply, infinitepayPayload, nfcePayload, validCpf, splitAddress, shouldAutoEmit, formaNf, NF_STATUS_OK };
+  // ---------- Cargos: quem vê cada aba ----------
+  // Para liberar ou tirar uma aba de um cargo, mude só esta lista.
+  const CARGOS = {
+    funcionario: { label: 'Funcionário', icon: '🧑‍🍳', abas: ['comandas', 'pedidos'] },
+    gerente: { label: 'Gerente', icon: '🧑‍💼', abas: ['caixa', 'estoque', 'comandas', 'pedidos', 'novo'] },
+    dono: { label: 'Dono', icon: '👑', abas: ['pedidos', 'comandas', 'caixa', 'estoque', 'novo', 'entregas', 'lucro', 'nf', 'bot', 'equipe', 'config', 'sistema'] }
+  };
+  // Sem cargo no cadastro = dono (quem já estava na equipe antes dos cargos continua vendo tudo)
+  const cargoOf = m => (CARGOS[m?.cargo] ? m.cargo : 'dono');
+  const canAccess = (cargo, aba) => (CARGOS[cargo] || CARGOS.funcionario).abas.includes(aba);
+
+  // ---------- Mesas e comandas ----------
+  // Cada envio para a cozinha é um pedido; a conta da mesa é a soma dos pedidos com a comanda aberta.
+  const comandaKey = c => `${c?.tipo === 'comanda' ? 'comanda' : 'mesa'}-${Number(c?.numero) || 0}`;
+  const comandaLabel = c => `${c?.tipo === 'comanda' ? 'Comanda' : 'Mesa'} ${Number(c?.numero) || 0}`;
+  function openComandas(orders) {
+    const map = new Map();
+    (orders || []).forEach(o => {
+      if (!o.comanda?.aberta || o.status === 'cancelado') return;
+      const k = comandaKey(o.comanda);
+      const c = map.get(k) || { key: k, tipo: o.comanda.tipo, numero: o.comanda.numero, nome: '', pedidos: [], total: 0, itens: 0, abertaEm: Infinity, contaPedida: false, pronto: false, cozinha: false };
+      c.pedidos.push(o);
+      c.total = round2(c.total + (Number(o.total) || 0));
+      c.itens += (o.itens || []).reduce((s, l) => s + (Number(l.qty) || 0), 0);
+      c.abertaEm = Math.min(c.abertaEm, Number(o.criadoEm) || Date.now());
+      c.nome = c.nome || o.comanda.nome || '';
+      c.contaPedida = c.contaPedida || !!o.comanda.contaPedida;
+      c.pronto = c.pronto || o.status === 'pronto';
+      c.cozinha = c.cozinha || ['novo', 'preparo'].includes(o.status);
+      map.set(k, c);
+    });
+    map.forEach(c => c.pedidos.sort((a, b) => a.criadoEm - b.criadoEm));
+    return map;
+  }
+  // Próximo número livre de comanda avulsa
+  function nextComanda(orders) {
+    const used = new Set([...openComandas(orders).values()].filter(c => c.tipo === 'comanda').map(c => c.numero));
+    let n = 1;
+    while (used.has(n)) n++;
+    return n;
+  }
+
+  // ---------- Estoque ----------
+  // estoque = { itens: { produtoId: { qtd, min } } }. Produto fora da lista = sem controle de estoque.
+  function stockStatus(e) {
+    if (!e || typeof e.qtd !== 'number') return 'livre';
+    if (e.qtd <= 0) return 'falta';
+    if (e.qtd <= (Number(e.min) || 0)) return 'baixo';
+    return 'ok';
+  }
+  // Quanto cada pedido tira do estoque, só dos produtos controlados: { produtoId: quantidade }
+  function stockNeeds(order, itensEstoque = {}) {
+    const need = {};
+    (order.itens || []).forEach(l => {
+      if (typeof itensEstoque[l.id]?.qtd !== 'number') return;
+      need[l.id] = (need[l.id] || 0) + (Number(l.qty) || 0);
+    });
+    return need;
+  }
+
+  // ---------- Caixa: o que entrou, por forma de pagamento ----------
+  const PAY_ORDER = ['Pix', 'Crédito', 'Débito', 'Dinheiro', 'Online', 'iFood'];
+  const paidAt = o => Number(o.pagamento?.em) || Number(o.criadoEm) || 0;
+  function cashReport(orders, { from = 0, to = Infinity } = {}) {
+    const pagos = (orders || []).filter(o => o.status !== 'cancelado' && o.pagamento?.pago && inRange(paidAt(o), from, to));
+    const porForma = Object.fromEntries(PAY_ORDER.map(k => [k, 0]));
+    const qtdForma = Object.fromEntries(PAY_ORDER.map(k => [k, 0]));
+    pagos.forEach(o => { const k = payKey(o); porForma[k] = round2(porForma[k] + (Number(o.total) || 0)); qtdForma[k]++; });
+    const recebido = round2(pagos.reduce((s, o) => s + (Number(o.total) || 0), 0));
+    return { pagos: pagos.sort((a, b) => paidAt(b) - paidAt(a)), porForma, qtdForma, recebido, ticketMedio: pagos.length ? round2(recebido / pagos.length) : 0 };
+  }
+
+  return { CARGOS, cargoOf, canAccess, comandaKey, comandaLabel, openComandas, nextComanda, stockStatus, stockNeeds, PAY_ORDER, paidAt, cashReport, brl, round2, norm, STATUS, STATUS_IDS, statusInfo, nextStatus, isDelivery, countsAsSale, DEFAULT_AUTO, enteredAt, autoStep, newOrderId, shortCode, unitPrice, missingGroup, subtotalOf, totalsOf, sanitizeOrder, DEFAULT_TAXAS, payKey, feeOf, costOf, profitReport, hourIn, isOpen, MSG, fillMsg, whatsLink, findProducts, botReply, infinitepayPayload, nfcePayload, validCpf, splitAddress, shouldAutoEmit, formaNf, NF_STATUS_OK };
 });

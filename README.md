@@ -19,11 +19,27 @@ Ligado ao site de pedidos **https://galdinoheitor15-star.github.io/baldini-burgu
 
 No modo demonstração os dados ficam só no navegador (o site e a gestão se enxergam quando abertos no mesmo navegador). Para a loja usar de verdade, faça o passo 1.
 
+## Cargos: quem vê o quê
+| Cargo | Abas |
+|---|---|
+| 🧑‍🍳 **Funcionário** | Mesas e comandas (abrir, lançar, trocar/juntar, cancelar, pedir a conta) e Pedidos |
+| 🧑‍💼 **Gerente** | Caixa (fechar conta + gráfico de pizza por Pix, crédito, débito e dinheiro), Estoque, Mesas e comandas, Pedidos e Lançar pedido |
+| 👑 **Dono** | Tudo, incluindo Lucro, Nota fiscal, Equipe e Configurações |
+
+- A pessoa entra com a conta Google, aparece um código na tela; o dono cola o código na aba **👥 Equipe** e escolhe o cargo.
+- Quem já estava na equipe antes dos cargos (sem o campo `cargo`) é tratado como **dono**. Ajuste o cargo de cada um na aba Equipe.
+- O dono tem o seletor **"Ver como"** no topo para conferir a tela de cada cargo.
+- Para mudar quais abas cada cargo vê, edite a lista `CARGOS` em `baldini-core.js`.
+- **Depois de atualizar, publique de novo o `firestore.rules`** (passo 1.5): as regras novas é que deixam o dono liberar pessoas e impedem gerente/funcionário de mudar configurações, despesas e apagar pedidos.
+
+## Estoque
+Na aba Estoque, digite a quantidade de cada produto e o mínimo. Toda venda (site, balcão ou mesa) dá baixa sozinha e pedido cancelado devolve. Produtos em falta aparecem marcados na hora de lançar o pedido.
+
 ## 1. Firebase (banco de dados, obrigatório)
 1. Acesse https://console.firebase.google.com e crie o projeto "baldini-burguer".
 2. **Firestore Database** → Criar banco → região `southamerica-east1`.
 3. **Authentication** → Método de login → ative **E-mail/senha**. Em *Users*, adicione o e-mail e a senha de cada pessoa da equipe.
-4. Copie o **UID** de cada pessoa. No Firestore, crie a coleção `equipe` e, dentro dela, um documento com esse UID como ID (pode ter só o campo `nome`). Só quem está em `equipe` vê os pedidos.
+4. Copie o **UID** do dono. No Firestore, crie a coleção `equipe` e, dentro dela, um documento com esse UID como ID, com os campos `nome` e `cargo` = `dono`. As outras pessoas o dono libera depois, pela aba **Equipe** da gestão.
 5. Firestore → **Regras** → cole o conteúdo de `firestore.rules` → Publicar.
 6. Configurações do projeto → Seus apps → **Web** → copie os dados para `firebase-config.js` **neste repositório e no `baldini-burguer`**.
 7. Authentication → Configurações → **Domínios autorizados** → adicione `galdinoheitor15-star.github.io`.

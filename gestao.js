@@ -17,8 +17,9 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   MENU.forEach(c => c.items.forEach(p => products.set(p.id, { ...p, cat: c.id })));
 
   const state = {
-    orders: [], expenses: [], tab: 'pedidos', period: 'hoje',
-    cfg: { loja: {}, custos: {}, mensagens: {}, nf: {} },
+    orders: [], expenses: [], team: [], tab: 'pedidos', period: 'hoje', caixaPeriod: 'hoje',
+    cfg: { loja: {}, custos: {}, mensagens: {}, nf: {}, estoque: {} },
+    cargo: 'funcionario', cargoReal: 'funcionario', contaSeen: new Set(), firstContas: true,
     seen: new Set(), firstLoad: true, sound: localGet('gestao-som', true)
   };
   function localGet(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v ?? d; } catch { return d; } }
@@ -74,7 +75,8 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   async function checkAccess(user) {
     current = user;
     if (!user) return show('login');
-    if (user.staff || await DB.isStaff(user.uid)) { show('app'); return start(user); }
+    const member = await DB.getMember(user.uid);
+    if (member) { show('app'); return start(user, member); }
     $('pendingEmail').textContent = user.email || user.nome;
     $('pendingUid').textContent = user.uid;
     show('pending');
@@ -114,9 +116,15 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   $('logoutBtn').addEventListener('click', () => DB.signOut().then(() => location.reload()));
 
   let started = false;
-  function start(user) {
+  function start(user, member) {
     if (started) return; started = true;
-    state.user = user;
+    state.user = { ...user, nome: member.nome || user.nome };
+    // O dono pode ver a gestão como gerente ou funcionário (para conferir o que cada um enxerga)
+    state.cargoReal = Core.cargoOf(member);
+    const verComo = localGet('gestao-ver-como', 'dono');
+    state.cargo = state.cargoReal === 'dono' && Core.CARGOS[verComo] ? verComo : state.cargoReal;
+    applyRole();
+    if (state.cargoReal === 'dono') DB.watchTeam(list => { state.team = list; if (state.tab === 'equipe') renderTeam(); }, e => console.warn('equipe', e));
     setBadge(DB.mode === 'firebase' ? null : { aoVivo: true, em: Date.now() });
     $('soundBtn').classList.toggle('is-off', !state.sound);
     watchConfigs();
@@ -165,20 +173,55 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     });
     DB.watchConfig('custos', v => { state.cfg.custos = v || {}; refreshForm('costList'); if (state.tab === 'lucro') renderProfit(); });
     DB.watchConfig('mensagens', v => { state.cfg.mensagens = v || {}; refreshForm('msgForm'); });
+    DB.watchConfig('estoque', v => {
+      state.cfg.estoque = v || {};
+      autoStock(state.orders);
+      updateCounts();
+      if (state.tab === 'estoque') renderStock();
+      if (state.tab === 'novo') renderPos();
+      if ($('cmdModal').open) renderCmdMenu();
+    });
   }
   const taxas = () => ({ ...Core.DEFAULT_TAXAS, ...(state.cfg.loja.taxas || {}) });
 
-  // ---------- Abas ----------
+  // ---------- Cargos e abas ----------
+  const can = aba => Core.canAccess(state.cargo, aba);
+  function applyRole() {
+    const c = Core.CARGOS[state.cargo];
+    const dono = state.cargoReal === 'dono';
+    $('roleLabel').textContent = `${c.icon} ${c.label}`;
+    $('roleLabel').hidden = dono;
+    $('roleView').hidden = !dono;
+    if (dono) $('roleView').innerHTML = Object.entries(Core.CARGOS).map(([k, v]) => `<option value="${k}"${k === state.cargo ? ' selected' : ''}>${v.icon} ${k === 'dono' ? 'Dono (vê tudo)' : 'Ver como ' + v.label}</option>`).join('');
+    // Cada cargo vê só as suas abas, na ordem do dia a dia dele
+    const tabs = $('tabs');
+    tabs.querySelectorAll('[data-tab]').forEach(b => { b.hidden = !can(b.dataset.tab); });
+    c.abas.forEach(a => { const b = tabs.querySelector(`[data-tab="${a}"]`); if (b) tabs.appendChild(b); });
+    goTab(c.abas[0]);
+  }
+  $('roleView').addEventListener('change', e => {
+    state.cargo = e.target.value;
+    localSet('gestao-ver-como', state.cargo);
+    applyRole();
+    toast(state.cargo === 'dono' ? 'Vendo tudo 👑' : `Vendo como ${Core.CARGOS[state.cargo].label}`);
+  });
+  function goTab(tab) {
+    if (!can(tab)) return;
+    state.tab = tab;
+    document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('is-on', x.dataset.tab === tab));
+    document.querySelectorAll('.view').forEach(v => { v.hidden = v.id !== 'view-' + tab; });
+    renderTab();
+  }
   $('tabs').addEventListener('click', e => {
     const b = e.target.closest('[data-tab]');
-    if (!b) return;
-    state.tab = b.dataset.tab;
-    document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('is-on', x === b));
-    document.querySelectorAll('.view').forEach(v => { v.hidden = v.id !== 'view-' + state.tab; });
-    renderTab();
+    if (b) goTab(b.dataset.tab);
   });
   function renderTab() {
     if (state.tab === 'pedidos') renderBoard();
+    if (state.tab === 'comandas') renderTables();
+    if (state.tab === 'caixa') renderCaixa();
+    if (state.tab === 'estoque') renderStock();
+    if (state.tab === 'equipe') renderTeam();
     if (state.tab === 'entregas') renderDeliveries();
     if (state.tab === 'lucro') renderProfit();
     if (state.tab === 'nf') renderNf();
@@ -212,8 +255,16 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     const active = list.filter(o => ['novo', 'preparo', 'pronto', 'entrega'].includes(o.status)).length;
     $('tabCount').textContent = active || '';
     document.title = active ? `(${active}) Gestão Baldini` : 'Gestão Baldini';
+    // Mesa que pediu a conta avisa quem cuida do caixa
+    const contas = [...Core.openComandas(list).values()].filter(c => c.contaPedida);
+    const novas = contas.filter(c => !state.contaSeen.has(c.key));
+    if (novas.length && can('caixa') && !state.firstContas) { beep(); toast(`🧾 ${Core.comandaLabel(novas[0])} pediu a conta`); }
+    state.firstContas = false;
+    state.contaSeen = new Set(contas.map(c => c.key));
+    updateCounts();
     checkPayments(list);
     autoNf(list);
+    autoStock(list);
     autoAdvance();
     scheduleRender();
   }
@@ -253,6 +304,8 @@ document.addEventListener('gesturestart', e => e.preventDefault());
       lastRender = Date.now();
       renderTab();
       if ($('orderModal').open && openId) renderOrderModal(openId);
+      if ($('cmdModal').open) renderCmdSide();
+      if ($('payModal').open && payCtx?.kind === 'bill' && !$('payBody').contains(document.activeElement)) renderBill();
     }, wait);
   }
 
@@ -263,14 +316,14 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     if (o.pagamento?.pago) return `<span class="tag tag--ok">Pago · ${esc(o.pagamento.metodo || o.pagamento.forma)}</span>`;
     return `<span class="tag">${esc(o.pagamento?.forma || 'Pix')}${o.pagamento?.troco ? ' · troco ' + esc(o.pagamento.troco) : ''}</span>`;
   }
-  const origemTag = o => ({ site: '🌐 Site', balcao: '🏪 Balcão', whatsapp: '💬 WhatsApp', ifood: '🛵 iFood' }[o.origem] || o.origem);
+  const origemTag = o => (o.comanda ? `🍽 ${Core.comandaLabel(o.comanda)}` : { site: '🌐 Site', balcao: '🏪 Balcão', whatsapp: '💬 WhatsApp', ifood: '🛵 iFood', mesa: '🍽 Mesa' }[o.origem] || o.origem);
 
   function orderCard(o) {
     const next = Core.nextStatus(o);
     const live = o.status === 'montando';
     return `<article class="ocard${live ? ' ocard--live' : ''}" data-id="${esc(o.id)}">
       <header><b>${esc(Core.shortCode(o.id))}</b><span class="muted">${origemTag(o)} · ${ago(o.criadoEm)}</span></header>
-      <p class="ocard__who">${esc(o.cliente?.nome || (live ? 'Cliente escolhendo...' : 'Sem nome'))}${o.entrega?.bairro ? ` · ${esc(o.entrega.bairro)}` : ''}</p>
+      <p class="ocard__who">${o.comanda ? `<span class="tag tag--mesa">🍽 ${esc(Core.comandaLabel(o.comanda))}</span> ` : ''}${esc(o.cliente?.nome || (live ? 'Cliente escolhendo...' : o.comanda ? '' : 'Sem nome'))}${o.entrega?.bairro ? ` · ${esc(o.entrega.bairro)}` : ''}</p>
       <p class="ocard__items">${esc(itemsSummary(o))}</p>
       <footer>
         <strong>${brl(o.total)}</strong>${live ? '<span class="tag tag--live">ao vivo</span>' : payBadge(o)}
@@ -312,12 +365,15 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     openOrder(o.id);
   });
 
-  function setStatus(o, status) {
+  function setStatus(o, status, extra = {}) {
     const hist = [...(o.historico || []), { status, em: Date.now() }].slice(-30);
     return safe('Erro ao mudar status', async () => {
-      await DB.updateOrder(o.id, { status, historico: hist });
+      await DB.updateOrder(o.id, { status, historico: hist, ...extra });
       if (status === 'cancelado' && Core.NF_STATUS_OK.includes(o.nf?.status)) cancelNf(o);
     });
+  }
+  function payOrder(o, metodo) {
+    return safe('Erro ao marcar pagamento', () => DB.updateOrder(o.id, { 'pagamento.pago': true, 'pagamento.metodo': metodo, 'pagamento.em': Date.now() }));
   }
   function advance(o) {
     const next = Core.nextStatus(o);
@@ -349,12 +405,14 @@ document.addEventListener('gesturestart', e => e.preventDefault());
         ${l.note ? `<small><i>Obs: ${esc(l.note)}</i></small>` : ''}</li>`).join('')}</ul>
       ${o.obs ? `<p class="note">📝 ${esc(o.obs)}</p>` : ''}
       ${o.recompensa ? `<p class="note">🎁 Quer trocar pontos por: ${esc(o.recompensa)}</p>` : ''}
-      <div class="grid3">
+      ${o.cancelMotivo ? `<p class="note">✖ Cancelado: ${esc(o.cancelMotivo)}</p>` : ''}
+      ${can('caixa') ? `<div class="grid3">
         ${d ? `<label class="field">Taxa de entrega<input data-m="taxa" data-mask="money" value="${money(o.entrega?.taxa)}"></label>` : ''}
         <label class="field">Desconto<input data-m="desconto" data-mask="money" value="${money(o.desconto)}"></label>
         <div class="total"><span>Total</span><strong>${brl(o.total)}</strong></div>
-      </div>
+      </div>` : `<div class="total"><span>Total</span><strong>${brl(o.total)}</strong></div>`}
       <h4>Pagamento ${payBadge(o)}</h4>
+      ${!can('caixa') ? `<p class="muted small">${o.comanda?.aberta ? 'A conta é fechada no caixa.' : 'Pagamento é recebido pelo caixa.'}</p>` : o.comanda?.aberta && !o.pagamento?.pago ? `<div class="row"><button type="button" class="btn btn--sm btn--yellow" data-m="bill">💵 Fechar a conta da ${esc(Core.comandaLabel(o.comanda))}</button></div>` : `
       <div class="paybox">
         ${o.pagamento?.pago ? `<p class="muted small">Recebido${o.pagamento.transacao ? ' · transação ' + esc(o.pagamento.transacao) : ''}. <button type="button" class="link" data-m="unpay">desfazer</button></p>` : `
         <p class="muted small">Na maquininha: digite <b class="big">${brl(o.total)}</b> e depois marque como foi pago.</p>
@@ -362,17 +420,18 @@ document.addEventListener('gesturestart', e => e.preventDefault());
         <div class="row"><button type="button" class="btn btn--sm btn--yellow" data-m="link">💳 Gerar link InfinitePay</button>
         ${o.pagamento?.link ? `<a class="btn btn--sm btn--ghost" href="${esc(o.pagamento.link)}" target="_blank" rel="noopener">Abrir link</a><button type="button" class="btn btn--sm btn--ghost" data-m="sendlink">💬 Enviar link</button>` : ''}
         ${o.retornoPagamento ? '<button type="button" class="btn btn--sm btn--ghost" data-m="check">🔎 Conferir pagamento</button>' : ''}</div>`}
-      </div>
-      <h4>Nota fiscal</h4>
+      </div>`}
+      ${can('nf') ? `<h4>Nota fiscal</h4>
       <div class="row"><span class="tag">${nfLabel(o.nf)}</span>
         ${o.nf?.url ? `<a class="btn btn--sm btn--ghost" href="${esc(o.nf.url)}" target="_blank" rel="noopener">🧾 Ver NFC-e</a>` : ''}
         ${o.nf?.payload ? '<button type="button" class="btn btn--sm btn--ghost" data-m="nfview">🧾 Ver nota</button>' : ''}
         ${!o.nf?.status || o.nf.status === 'erro' ? '<button type="button" class="btn btn--sm btn--ghost" data-m="nf">🧾 Emitir NFC-e</button>' : ''}
-        ${o.nf?.erro ? `<small class="muted">${esc(o.nf.erro)}</small>` : ''}</div>
+        ${o.nf?.erro ? `<small class="muted">${esc(o.nf.erro)}</small>` : ''}</div>` : ''}
       <footer class="modal__foot">
         <button type="button" class="btn btn--sm btn--ghost" data-m="print">🖨 Comanda</button>
         <button type="button" class="btn btn--sm btn--ghost" data-m="whats">💬 Avisar cliente</button>
-        <button type="button" class="btn btn--sm btn--danger" data-m="delete">Apagar</button>
+        ${o.comanda?.aberta ? `<button type="button" class="btn btn--sm btn--ghost" data-m="opencmd">🍽 Abrir ${esc(Core.comandaLabel(o.comanda))}</button>` : ''}
+        ${state.cargo === 'dono' ? '<button type="button" class="btn btn--sm btn--danger" data-m="delete">Apagar</button>' : ''}
       </footer>`;
   }
   $('orderBody').addEventListener('click', e => {
@@ -383,9 +442,18 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     const o = state.orders.find(x => x.id === openId);
     if (!o) return;
     if (m === 'nfview') return showNf(o);
-    if (m === 'status') setStatus(o, b.dataset.s);
-    if (m === 'pay') safe('Erro ao marcar pagamento', () => DB.updateOrder(o.id, { 'pagamento.pago': true, 'pagamento.metodo': b.dataset.p }));
-    if (m === 'unpay') safe('Erro', () => DB.updateOrder(o.id, { 'pagamento.pago': false, 'pagamento.metodo': '' }));
+    if (m === 'status') {
+      if (b.dataset.s === 'cancelado' && o.status !== 'cancelado') {
+        const motivo = prompt(`Cancelar o pedido ${Core.shortCode(o.id)}? Escreva o motivo (opcional):`);
+        if (motivo === null) return;
+        return setStatus(o, 'cancelado', { cancelMotivo: motivo.trim().slice(0, 140), ...(o.comanda ? { 'comanda.aberta': false } : {}) });
+      }
+      setStatus(o, b.dataset.s);
+    }
+    if (m === 'bill') { $('orderModal').close(); return openBill(Core.comandaKey(o.comanda)); }
+    if (m === 'opencmd') { $('orderModal').close(); return openCmd(o.comanda.tipo, o.comanda.numero); }
+    if (m === 'pay') payOrder(o, b.dataset.p);
+    if (m === 'unpay') safe('Erro', () => DB.updateOrder(o.id, { 'pagamento.pago': false, 'pagamento.metodo': '', 'pagamento.em': 0 }));
     if (m === 'link') makeLink(o);
     if (m === 'sendlink') notify(o, 'pagamento');
     if (m === 'check') checkPayment(o, true);
@@ -397,7 +465,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   $('orderBody').addEventListener('change', e => {
     const m = e.target.dataset.m;
     const o = state.orders.find(x => x.id === openId);
-    if (!o || !['taxa', 'desconto'].includes(m)) return;
+    if (!o || !['taxa', 'desconto'].includes(m) || !can('caixa')) return;
     const next = { ...o, entrega: { ...o.entrega }, desconto: o.desconto };
     if (m === 'taxa') next.entrega.taxa = num(e.target.value); else next.desconto = num(e.target.value);
     const t = Core.totalsOf(next);
@@ -432,7 +500,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
       });
       const data = await res.json();
       if (data.paid) {
-        await DB.updateOrder(o.id, { 'pagamento.pago': true, 'pagamento.metodo': data.capture_method === 'pix' ? 'Pix (online)' : 'Online', 'pagamento.transacao': r.transaction_nsu || '' });
+        await DB.updateOrder(o.id, { 'pagamento.pago': true, 'pagamento.metodo': data.capture_method === 'pix' ? 'Pix (online)' : 'Online', 'pagamento.transacao': r.transaction_nsu || '', 'pagamento.em': Date.now() });
         toast(`💰 Pagamento confirmado ${Core.shortCode(o.id)}`);
       } else if (loud) toast('Pagamento ainda não aparece como pago', true);
     } catch (e) { if (loud) toast('Não deu para conferir: ' + e.message, true); }
@@ -570,17 +638,29 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     $('posCats').innerHTML = MENU.map(c => `<button type="button" data-cat="${c.id}" class="${c.id === posCat ? 'is-on' : ''}">${esc(c.name)}</button>`).join('');
     const q = Core.norm($('posSearch').value);
     const items = q ? [...products.values()].filter(p => Core.norm(p.name).includes(q)) : (MENU.find(c => c.id === posCat)?.items || []);
-    $('posGrid').innerHTML = items.map(p => `<button type="button" class="pitem" data-p="${p.id}">${p.img ? `<img src="${siteImg(p.img)}" alt="" loading="lazy">` : '<span>🍔</span>'}<b>${esc(p.name)}</b><small>${brl(p.price || Math.min(...(p.groups?.[0]?.options || [{ price: 0 }]).map(o => o.price)))}</small></button>`).join('');
+    $('posGrid').innerHTML = productTiles(items);
     renderPosCart();
+  }
+  // Produtos do cardápio para tocar e adicionar, com o aviso do estoque
+  function productTiles(items) {
+    const est = state.cfg.estoque?.itens || {};
+    return items.map(p => {
+      const e = est[p.id], st = Core.stockStatus(e);
+      const badge = st === 'falta' ? '<em class="pbadge pbadge--falta">❌ Em falta</em>' : st === 'baixo' ? `<em class="pbadge pbadge--baixo">⚠️ Restam ${e.qtd}</em>` : '';
+      return `<button type="button" class="pitem${st === 'falta' ? ' is-out' : ''}" data-p="${p.id}">${p.img ? `<img src="${siteImg(p.img)}" alt="" loading="lazy">` : '<span>🍔</span>'}${badge}<b>${esc(p.name)}</b><small>${brl(p.price || Math.min(...(p.groups?.[0]?.options || [{ price: 0 }]).map(o => o.price)))}</small></button>`;
+    }).join('');
   }
   $('posCats').addEventListener('click', e => { const b = e.target.closest('[data-cat]'); if (b) { posCat = b.dataset.cat; $('posSearch').value = ''; renderPos(); } });
   $('posSearch').addEventListener('input', renderPos);
   $('posGrid').addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (b) pickProduct(products.get(b.dataset.p)); });
 
   let pick = null;
-  function pickProduct(p) {
-    if (!p.groups?.length) return addPosLine({ id: p.id, name: p.name, img: p.img, unit: p.price, qty: 1, choices: [], note: '' });
-    pick = { p, sel: p.groups.map(g => (g.type === 'single' && g.options.length === 1 ? { 0: 1 } : {})), qty: 1 };
+  // Escolhe as opções do produto e entrega a linha pronta para quem chamou (lançar pedido ou comanda)
+  function pickProduct(p, onAdd = addPosLine) {
+    const st = Core.stockStatus(state.cfg.estoque?.itens?.[p.id]);
+    if (st === 'falta' && !confirm(`${p.name} está em falta no estoque. Adicionar mesmo assim?`)) return;
+    if (!p.groups?.length) return onAdd({ id: p.id, name: p.name, img: p.img, unit: p.price, qty: 1, choices: [], note: '' });
+    pick = { p, onAdd, sel: p.groups.map(g => (g.type === 'single' && g.options.length === 1 ? { 0: 1 } : {})), qty: 1 };
     renderPick();
     $('pickModal').showModal();
   }
@@ -614,7 +694,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
       const miss = Core.missingGroup(pick.p, pick.sel);
       if (miss >= 0) return toast('Escolha: ' + pick.p.groups[miss].name, true);
       const choices = pick.p.groups.map((g, gi) => ({ group: g.name.replace(/\s+\?/, '?'), items: Object.entries(pick.sel[gi]).map(([oi, q]) => ({ name: g.options[oi].name.replace(/\s*\(extra\)/i, ''), qty: q, price: g.options[oi].price })) })).filter(c => c.items.length);
-      addPosLine({ id: pick.p.id, name: pick.p.name, img: pick.p.img, unit: Core.unitPrice(pick.p, pick.sel), qty: pick.qty, choices, note: (pick.note || '').trim() });
+      pick.onAdd({ id: pick.p.id, name: pick.p.name, img: pick.p.img, unit: Core.unitPrice(pick.p, pick.sel), qty: pick.qty, choices, note: (pick.note || '').trim() });
       $('pickModal').close();
     }
   });
@@ -625,7 +705,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
       id: Core.newOrderId(), origem: f.origem.value, status: 'novo', itens: posCart,
       cliente: { nome: f.nome.value.trim(), telefone: f.telefone.value.trim(), cpf: f.cpf.value.trim() },
       entrega: { tipo: f.entrega.value, endereco: f.endereco.value.trim(), bairro: f.bairro.value.trim(), referencia: f.referencia.value.trim(), taxa: num(f.taxa.value) },
-      pagamento: { forma: f.pagamento.value, pago: f.pago.checked, metodo: f.pago.checked ? f.pagamento.value : '' },
+      pagamento: { forma: f.pagamento.value, pago: f.pago.checked, metodo: f.pago.checked ? f.pagamento.value : '', em: f.pago.checked ? Date.now() : 0 },
       desconto: num(f.desconto.value), obs: f.obs.value.trim(), criadoEm: Date.now(), historico: [{ status: 'novo', em: Date.now() }]
     });
   }
@@ -660,6 +740,513 @@ document.addEventListener('gesturestart', e => e.preventDefault());
       state.seen.add(o.id);
       posCart = []; e.target.reset(); renderPosCart();
       toast(`Pedido ${Core.shortCode(o.id)} lançado ✅`);
+    });
+  });
+
+  // ---------- Contadores das abas ----------
+  function updateCounts() {
+    const open = [...Core.openComandas(state.orders).values()];
+    $('tabCmdCount').textContent = open.filter(c => c.pronto).length || '';
+    $('tabCmdCount').title = 'Mesas com pedido pronto para servir';
+    $('tabCaixaCount').textContent = open.filter(c => c.contaPedida).length || '';
+    const est = state.cfg.estoque?.itens || {};
+    $('tabStockCount').textContent = [...products.keys()].filter(id => Core.stockStatus(est[id]) === 'falta').length || '';
+  }
+
+  // ---------- Estoque: baixa automática ----------
+  // Pedido que vira venda tira do estoque; pedido cancelado devolve. Só vale para pedidos feitos
+  // depois que o estoque começou a ser usado (não desconta o histórico antigo).
+  const stocking = new Set();
+  async function autoStock(list) {
+    const est = state.cfg.estoque || {};
+    const itens = est.itens || {};
+    if (!est.desde || !Object.keys(itens).length) return;
+    for (const o of list) {
+      if (stocking.has(o.id) || o.criadoEm < est.desde) continue;
+      const baixar = Core.countsAsSale(o);
+      if (!!o.estoqueBaixado === baixar) continue;
+      const need = Core.stockNeeds(o, itens);
+      if (!Object.keys(need).length) continue;
+      stocking.add(o.id);
+      try {
+        if (await DB.claimStock(o.id, baixar)) {
+          const deltas = {};
+          Object.entries(need).forEach(([id, q]) => { deltas[id] = baixar ? -q : q; });
+          await DB.addStock(deltas);
+        }
+      } catch (e) { console.warn('Estoque', e); }
+      finally { stocking.delete(o.id); }
+    }
+  }
+
+  // ---------- Mesas e comandas ----------
+  const mesasCount = () => Math.max(1, Math.min(200, Number(state.cfg.loja.mesas) || 12));
+  let cmdFilter = 'todas';
+  function renderTables() {
+    const open = Core.openComandas(state.orders);
+    const tiles = [];
+    for (let n = 1; n <= mesasCount(); n++) tiles.push(open.get(`mesa-${n}`) || { key: `mesa-${n}`, tipo: 'mesa', numero: n, livre: true });
+    [...open.values()].filter(c => !tiles.some(t => t.key === c.key)).sort((a, b) => a.tipo.localeCompare(b.tipo) || a.numero - b.numero).forEach(c => tiles.push(c));
+    const ocupadas = tiles.filter(t => !t.livre);
+    const mesasOcup = ocupadas.filter(t => t.tipo === 'mesa').length;
+    const avulsas = ocupadas.length - mesasOcup;
+    $('cmdSum').innerHTML = `<b>${mesasOcup}</b> de ${mesasCount()} mesas ocupadas${avulsas ? ` · <b>${avulsas}</b> comanda${avulsas > 1 ? 's' : ''} avulsa${avulsas > 1 ? 's' : ''}` : ''} · <b>${brl(ocupadas.reduce((s, c) => s + c.total, 0))}</b> em aberto`;
+    const show = tiles.filter(t => cmdFilter === 'todas' || (cmdFilter === 'livres' ? t.livre : !t.livre));
+    $('tables').innerHTML = show.map(t => {
+      if (t.livre) return `<button type="button" class="tbl" data-cmd="${t.key}"><small>${t.tipo === 'mesa' ? 'Mesa' : 'Comanda'}</small><b>${t.numero}</b><span class="muted">Livre</span></button>`;
+      const cls = t.contaPedida ? ' tbl--conta' : t.pronto ? ' tbl--pronto' : ' tbl--ocupada';
+      const flag = t.contaPedida ? '<em>🧾 Pediu a conta</em>' : t.pronto ? '<em>🔔 Pronto p/ servir</em>' : t.cozinha ? '<em class="is-soft">🔥 Na cozinha</em>' : '';
+      return `<button type="button" class="tbl${cls}" data-cmd="${t.key}"><small>${t.tipo === 'mesa' ? 'Mesa' : 'Comanda'}</small><b>${t.numero}</b>
+        ${t.nome ? `<span class="tbl__name">${esc(t.nome)}</span>` : ''}<strong>${brl(t.total)}</strong><span class="muted">${t.itens} ${t.itens === 1 ? 'item' : 'itens'} · ${ago(t.abertaEm)}</span>${flag}</button>`;
+    }).join('') || '<p class="muted small">Nada aqui.</p>';
+  }
+  $('cmdFilter').addEventListener('click', e => {
+    const b = e.target.closest('[data-f]');
+    if (!b) return;
+    cmdFilter = b.dataset.f;
+    $('cmdFilter').querySelectorAll('button').forEach(x => x.classList.toggle('is-on', x === b));
+    renderTables();
+  });
+  $('tables').addEventListener('click', e => {
+    const b = e.target.closest('[data-cmd]');
+    if (!b) return;
+    const [tipo, n] = b.dataset.cmd.split('-');
+    openCmd(tipo, Number(n));
+  });
+  $('newComanda').addEventListener('click', () => openCmd('comanda', Core.nextComanda(state.orders)));
+
+  // Tela da mesa: cardápio de um lado, conta do outro. Lança, troca, cancela e pede a conta sem sair dali.
+  let cmd = null;
+  let cmdCat = MENU[0]?.id;
+  const cmdLabel = () => Core.comandaLabel(cmd);
+  const currentCmd = () => (cmd ? Core.openComandas(state.orders).get(Core.comandaKey(cmd)) : null);
+  function openCmd(tipo, numero) {
+    cmd = { tipo, numero, draft: [], obs: '' };
+    cmd.nome = currentCmd()?.nome || '';
+    $('cmdSearch').value = '';
+    renderCmdMenu();
+    renderCmdSide(true);
+    if (!$('cmdModal').open) $('cmdModal').showModal();
+  }
+  function closeCmd() {
+    if (cmd?.draft.length && !confirm('Os itens que ainda não foram enviados para a cozinha serão descartados. Fechar mesmo assim?')) return;
+    cmd = null;
+    $('cmdModal').close();
+    if (state.tab === 'comandas') renderTables();
+  }
+  $('cmdModal').addEventListener('cancel', e => { e.preventDefault(); closeCmd(); });
+  function renderCmdMenu() {
+    if (!cmd) return;
+    $('cmdCats').innerHTML = MENU.map(c => `<button type="button" data-cat="${c.id}" class="${c.id === cmdCat ? 'is-on' : ''}">${esc(c.name)}</button>`).join('');
+    const q = Core.norm($('cmdSearch').value);
+    const items = q ? [...products.values()].filter(p => Core.norm(p.name).includes(q)) : (MENU.find(c => c.id === cmdCat)?.items || []);
+    $('cmdGrid').innerHTML = productTiles(items) || '<p class="muted small">Nenhum produto encontrado.</p>';
+  }
+  $('cmdSearch').addEventListener('input', renderCmdMenu);
+  $('cmdCats').addEventListener('click', e => { const b = e.target.closest('[data-cat]'); if (b) { cmdCat = b.dataset.cat; $('cmdSearch').value = ''; renderCmdMenu(); } });
+  $('cmdGrid').addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (b) pickProduct(products.get(b.dataset.p), addCmdLine); });
+  function addCmdLine(l) {
+    // Mesmo produto sem opções nem observação só aumenta a quantidade
+    const same = !l.choices.length && !l.note && cmd.draft.find(x => x.id === l.id && !x.choices.length && !x.note);
+    if (same) same.qty = Math.min(99, same.qty + l.qty); else cmd.draft.push(l);
+    renderCmdDraft();
+    toast(`${l.qty}x ${l.name} ✓`);
+  }
+  const lineChoices = l => (l.choices || []).map(c => `<small>${esc(c.group)}: ${esc(c.items.map(i => (i.qty > 1 ? i.qty + 'x ' : '') + i.name).join(', '))}</small>`).join('') + (l.note ? `<small><i>Obs: ${esc(l.note)}</i></small>` : '');
+  // full=true monta tudo; senão só atualiza a conta (os campos que a pessoa está digitando ficam intactos)
+  function renderCmdSide(full) {
+    if (!cmd) return;
+    if (full || !$('cmdBill')) {
+      $('cmdSide').innerHTML = `<div id="cmdActs"></div>
+        <section class="cmd__new">
+          <h3>Novo pedido</h3>
+          <div class="grid2">
+            <label class="field">Nome do cliente (opcional)<input id="cmdNome" maxlength="60" value="${esc(cmd.nome)}" placeholder="Ex.: Ana"></label>
+            <label class="field">Observação para a cozinha<input id="cmdObs" maxlength="300" value="${esc(cmd.obs)}" placeholder="Ex.: sem cebola na 1ª"></label>
+          </div>
+          <div id="cmdDraft"></div>
+        </section>
+        <section id="cmdBill"></section>`;
+      renderCmdDraft();
+    }
+    const c = currentCmd();
+    $('cmdTitle').innerHTML = `${cmd.tipo === 'mesa' ? '🍽' : '🧾'} ${esc(cmdLabel())} ${c ? `<small>Aberta há ${ago(c.abertaEm)} · ${c.pedidos.length} envio${c.pedidos.length > 1 ? 's' : ''} para a cozinha</small>` : '<small>Livre: adicione os itens e envie para a cozinha</small>'}`;
+    $('cmdActs').innerHTML = c ? `<div class="cmd__acts">
+        <button type="button" class="btn btn--sm btn--ghost" data-c="move">🔁 Trocar / juntar</button>
+        <button type="button" class="btn btn--sm ${c.contaPedida ? 'btn--yellow' : 'btn--ghost'}" data-c="ask">🧾 ${c.contaPedida ? 'Conta pedida ✓' : 'Pedir a conta'}</button>
+        <button type="button" class="btn btn--sm btn--ghost" data-c="print">🖨 Imprimir conta</button>
+        <button type="button" class="btn btn--sm btn--danger" data-c="cancel">✖ Cancelar ${cmd.tipo}</button>
+      </div>` : '';
+    $('cmdBill').innerHTML = c ? `<h3>Já na conta</h3>
+      ${c.pedidos.map(o => `<div class="round round--${o.status}">
+        <header><b>${esc(Core.shortCode(o.id))}</b><span class="muted">${hhmm(o.criadoEm)}</span><span class="tag">${Core.statusInfo(o.status).icon} ${Core.statusInfo(o.status).label}</span>
+          <span class="round__acts">${o.status === 'pronto' ? `<button type="button" class="btn btn--sm btn--yellow" data-c="served" data-o="${esc(o.id)}">✔ Servido</button>` : ''}<button type="button" class="link" data-c="cancelone" data-o="${esc(o.id)}" title="Cancelar só este envio">Cancelar</button></span></header>
+        <ul class="lines">${(o.itens || []).map(l => `<li><b>${l.qty}x ${esc(l.name)}</b><span>${brl(l.unit * l.qty)}</span>${lineChoices(l)}</li>`).join('')}</ul>
+        ${o.obs ? `<p class="muted small">📝 ${esc(o.obs)}</p>` : ''}
+      </div>`).join('')}
+      <div class="total"><span>Total da conta</span><strong>${brl(c.total)}</strong></div>
+      ${can('caixa') ? '<button type="button" class="btn btn--yellow btn--block" data-c="bill">💵 Fechar a conta</button>' : c.contaPedida ? '<p class="muted small">O caixa já foi avisado para fechar a conta.</p>' : ''}` : '';
+  }
+  function renderCmdDraft() {
+    if (!cmd || !$('cmdDraft')) return;
+    const total = Core.subtotalOf(cmd.draft);
+    const qty = cmd.draft.reduce((s, l) => s + l.qty, 0);
+    $('cmdDraft').innerHTML = cmd.draft.length ? `<ul class="lines">${cmd.draft.map((l, i) => `<li><b>${esc(l.name)}</b>
+        <span class="qty"><button type="button" data-c="dq" data-i="${i}" data-d="-1" aria-label="Menos">−</button><b>${l.qty}</b><button type="button" data-c="dq" data-i="${i}" data-d="1" aria-label="Mais">+</button></span>
+        ${lineChoices(l)}<small>${brl(l.unit * l.qty)}</small></li>`).join('')}</ul>
+      <button type="button" class="btn btn--yellow btn--block" data-c="send">🔥 Enviar para a cozinha · ${brl(total)}</button>`
+      : '<p class="muted small">Toque nos produtos do cardápio para adicionar.</p>';
+    $('cmdBar').hidden = !cmd.draft.length;
+    $('cmdBarCount').textContent = qty;
+    $('cmdBarLabel').textContent = qty === 1 ? 'item' : 'itens';
+    $('cmdBarTotal').textContent = brl(total);
+  }
+  $('cmdBar').addEventListener('click', () => $('cmdDraft').scrollIntoView({ block: 'center', behavior: 'smooth' }));
+  $('cmdSide').addEventListener('input', e => {
+    if (e.target.id === 'cmdNome') cmd.nome = e.target.value;
+    if (e.target.id === 'cmdObs') cmd.obs = e.target.value;
+  });
+  // Nome mudou numa mesa já aberta: vale para a conta toda
+  $('cmdSide').addEventListener('change', e => {
+    const c = currentCmd();
+    if (e.target.id !== 'cmdNome' || !c) return;
+    const nome = cmd.nome.trim().slice(0, 60);
+    safe('Erro ao salvar o nome', () => Promise.all(c.pedidos.map(o => DB.updateOrder(o.id, { 'comanda.nome': nome, 'cliente.nome': nome }))));
+  });
+  $('cmdModal').addEventListener('click', e => {
+    const b = e.target.closest('[data-c]');
+    if (!b) return;
+    const a = b.dataset.c;
+    const c = currentCmd();
+    if (a === 'close') return closeCmd();
+    if (a === 'dq') {
+      const l = cmd.draft[+b.dataset.i];
+      l.qty += +b.dataset.d;
+      if (l.qty <= 0) cmd.draft.splice(+b.dataset.i, 1);
+      return renderCmdDraft();
+    }
+    if (a === 'send') return sendCmd();
+    if (!c) return;
+    if (a === 'ask') return safe('Erro', () => Promise.all(c.pedidos.map(o => DB.updateOrder(o.id, { 'comanda.contaPedida': !c.contaPedida })))).then(() => toast(c.contaPedida ? 'Pedido de conta desfeito' : `🧾 Caixa avisado: ${cmdLabel()} quer a conta`));
+    if (a === 'print') return printBill(c);
+    if (a === 'move') return openMove(c);
+    if (a === 'bill') return openBill(c.key);
+    if (a === 'served') { const o = c.pedidos.find(x => x.id === b.dataset.o); if (o) setStatus(o, 'concluido'); return; }
+    if (a === 'cancelone') {
+      const o = c.pedidos.find(x => x.id === b.dataset.o);
+      if (!o) return;
+      const motivo = prompt(`Cancelar o envio ${Core.shortCode(o.id)} (${itemsSummary(o)} · ${brl(o.total)})? Escreva o motivo:`);
+      if (motivo === null) return;
+      return setStatus(o, 'cancelado', { cancelMotivo: motivo.trim().slice(0, 140), 'comanda.aberta': false }).then(() => toast(`Envio ${Core.shortCode(o.id)} cancelado`));
+    }
+    if (a === 'cancel') {
+      const motivo = prompt(`Cancelar a ${cmdLabel()} inteira (${c.itens} itens · ${brl(c.total)})? Isso cancela todos os pedidos dela.\n\nEscreva o motivo:`);
+      if (motivo === null) return;
+      const extra = { cancelMotivo: motivo.trim().slice(0, 140), 'comanda.aberta': false, 'comanda.contaPedida': false };
+      return Promise.all(c.pedidos.map(o => setStatus(o, 'cancelado', extra))).then(() => { toast(`${cmdLabel()} cancelada`); cmd.draft = []; closeCmd(); });
+    }
+  });
+  async function sendCmd() {
+    if (!cmd.draft.length) return toast('Adicione itens do cardápio', true);
+    const nome = cmd.nome.trim();
+    const em = Date.now();
+    const o = Core.sanitizeOrder({
+      id: Core.newOrderId(), origem: 'mesa', status: 'novo', itens: cmd.draft,
+      cliente: { nome }, entrega: { tipo: 'Comer no local' }, pagamento: { forma: 'A definir', pago: false },
+      obs: cmd.obs.trim(), comanda: { tipo: cmd.tipo, numero: cmd.numero, aberta: true, nome, contaPedida: !!currentCmd()?.contaPedida },
+      criadoEm: em, historico: [{ status: 'novo', em }]
+    });
+    await safe('Erro ao enviar', async () => {
+      await DB.saveOrder(o);
+      state.seen.add(o.id);
+      cmd.draft = []; cmd.obs = '';
+      if ($('cmdObs')) $('cmdObs').value = '';
+      renderCmdDraft();
+      renderCmdSide();
+      toast(`🔥 ${cmdLabel()}: pedido ${Core.shortCode(o.id)} enviado para a cozinha`);
+    });
+  }
+  function printBill(c) {
+    const linhas = c.pedidos.flatMap(o => o.itens || []);
+    $('printArea').innerHTML = `<h1>BALDINI BURGUER</h1><h2>${esc(Core.comandaLabel(c))}${c.nome ? ' · ' + esc(c.nome) : ''}</h2><p>${new Date().toLocaleString('pt-BR')}</p><hr>
+      ${linhas.map(l => `<p>${l.qty}x ${esc(l.name)} <b>${brl(l.unit * l.qty)}</b>${(l.choices || []).map(ch => `<br>&nbsp;- ${esc(ch.items.map(i => (i.qty > 1 ? i.qty + 'x ' : '') + i.name).join(', '))}`).join('')}</p>`).join('')}
+      <hr><h2>TOTAL ${brl(c.total)}</h2><p>Conferência de conta. Não é documento fiscal.</p>`;
+    window.print();
+  }
+
+  // Trocar de mesa ou juntar com outra (se a escolhida estiver ocupada, as contas viram uma só)
+  function openMove(c) {
+    const open = Core.openComandas(state.orders);
+    const opts = [];
+    for (let n = 1; n <= mesasCount(); n++) opts.push({ tipo: 'mesa', numero: n });
+    open.forEach(x => { if (!opts.some(o => Core.comandaKey(o) === x.key)) opts.push({ tipo: x.tipo, numero: x.numero }); });
+    opts.push({ tipo: 'comanda', numero: Core.nextComanda(state.orders), nova: true });
+    $('payBody').innerHTML = `<header class="modal__head"><h2>Trocar ${esc(Core.comandaLabel(c))} <small>Escolha para onde vai. Se estiver ocupada, as duas contas viram uma só.</small></h2><button type="button" class="icon-btn" data-x="close" aria-label="Fechar">✕</button></header>
+      <div class="tables tables--sm">${opts.filter(o => Core.comandaKey(o) !== c.key).map(o => {
+        const busy = open.get(Core.comandaKey(o));
+        return `<button type="button" class="tbl${busy ? ' tbl--ocupada' : ''}" data-x="to" data-t="${o.tipo}" data-n="${o.numero}"><small>${o.nova ? 'Nova comanda' : o.tipo === 'mesa' ? 'Mesa' : 'Comanda'}</small><b>${o.numero}</b><span class="muted">${busy ? `Juntar · ${brl(busy.total)}` : 'Livre'}</span></button>`;
+      }).join('')}</div>`;
+    payCtx = { kind: 'move', key: c.key };
+    if (!$('payModal').open) $('payModal').showModal();
+  }
+  async function moveTo(fromKey, to) {
+    const c = Core.openComandas(state.orders).get(fromKey);
+    if (!c) return;
+    const dest = Core.openComandas(state.orders).get(Core.comandaKey(to));
+    if (dest && !confirm(`Juntar ${Core.comandaLabel(c)} com ${Core.comandaLabel(to)}? Os itens das duas ficam numa conta só.`)) return;
+    await safe('Erro ao trocar', () => Promise.all(c.pedidos.map(o => DB.updateOrder(o.id, { 'comanda.tipo': to.tipo, 'comanda.numero': to.numero }))));
+    $('payModal').close();
+    toast(`🔁 ${Core.comandaLabel(c)} → ${Core.comandaLabel(to)}`);
+    if (cmd && Core.comandaKey(cmd) === fromKey) { cmd.tipo = to.tipo; cmd.numero = to.numero; renderCmdSide(); }
+  }
+
+  // ---------- Caixa: fechar conta ----------
+  let payCtx = null;
+  function openBill(key) {
+    const c = Core.openComandas(state.orders).get(key);
+    if (!c) return toast('Essa conta já foi fechada', true);
+    payCtx = { kind: 'bill', key, metodo: '', desconto: 0, recebido: 0 };
+    renderBill();
+    if (!$('payModal').open) $('payModal').showModal();
+  }
+  function renderBill() {
+    const c = Core.openComandas(state.orders).get(payCtx.key);
+    if (!c) { $('payModal').close(); return; }
+    const total = Core.round2(Math.max(0, c.total - payCtx.desconto));
+    const troco = payCtx.metodo === 'Dinheiro' && payCtx.recebido > total ? Core.round2(payCtx.recebido - total) : 0;
+    $('payBody').innerHTML = `<header class="modal__head"><h2>Fechar conta · ${esc(Core.comandaLabel(c))}${c.nome ? ` <small>${esc(c.nome)}</small>` : ''}</h2><button type="button" class="icon-btn" data-x="close" aria-label="Fechar">✕</button></header>
+      <ul class="lines">${c.pedidos.flatMap(o => o.itens || []).map(l => `<li><b>${l.qty}x ${esc(l.name)}</b><span>${brl(l.unit * l.qty)}</span></li>`).join('')}</ul>
+      <div class="grid2">
+        <label class="field">Desconto<input data-x="desconto" data-mask="money" value="${payCtx.desconto ? money(payCtx.desconto) : ''}" placeholder="R$ 0,00"></label>
+        <div class="total"><span>Total a receber</span><strong id="billTotal">${brl(total)}</strong></div>
+      </div>
+      <h4>Como pagou?</h4>
+      <div class="paygrid">${['Pix', 'Débito', 'Crédito', 'Dinheiro'].map(m => `<button type="button" class="paybtn${payCtx.metodo === m ? ' is-on' : ''}" data-x="metodo" data-p="${m}">${{ Pix: '⚡', 'Débito': '💳', 'Crédito': '💳', Dinheiro: '💵' }[m]} ${m}</button>`).join('')}</div>
+      ${payCtx.metodo === 'Dinheiro' ? `<div class="grid2"><label class="field">Valor recebido<input data-x="recebido" data-mask="money" value="${payCtx.recebido ? money(payCtx.recebido) : ''}" placeholder="R$ 0,00"></label>
+        <div class="total"><span>Troco</span><strong id="billTroco">${brl(troco)}</strong></div></div>` : ''}
+      ${payCtx.metodo && payCtx.metodo !== 'Dinheiro' ? `<p class="muted small">Na maquininha: digite <b class="big">${brl(total)}</b></p>` : ''}
+      <footer class="modal__foot"><button type="button" class="btn btn--ghost" data-x="close">Voltar</button>
+        <button type="button" class="btn btn--yellow" data-x="confirm"${payCtx.metodo ? '' : ' disabled'}>✔ Receber ${brl(total)}</button></footer>`;
+  }
+  $('payBody').addEventListener('click', e => {
+    const b = e.target.closest('[data-x]');
+    if (!b || b.tagName === 'INPUT') return;
+    const x = b.dataset.x;
+    if (x === 'close') return $('payModal').close();
+    if (x === 'to') return moveTo(payCtx.key, { tipo: b.dataset.t, numero: Number(b.dataset.n) });
+    if (x === 'metodo') { payCtx.metodo = b.dataset.p; return renderBill(); }
+    if (x === 'confirm') return closeBill();
+  });
+  // Desconto e troco recalculam sem redesenhar o campo que está sendo digitado
+  $('payBody').addEventListener('input', e => {
+    if (payCtx?.kind !== 'bill') return;
+    const c = Core.openComandas(state.orders).get(payCtx.key);
+    if (!c) return;
+    if (e.target.dataset.x === 'desconto') payCtx.desconto = Math.min(c.total, num(e.target.value));
+    if (e.target.dataset.x === 'recebido') payCtx.recebido = num(e.target.value);
+    const total = Core.round2(Math.max(0, c.total - payCtx.desconto));
+    $('billTotal').textContent = brl(total);
+    if ($('billTroco')) $('billTroco').textContent = brl(payCtx.recebido > total ? payCtx.recebido - total : 0);
+    const ok = $('payBody').querySelector('[data-x="confirm"]');
+    if (ok) ok.textContent = `✔ Receber ${brl(total)}`;
+  });
+  $('payModal').addEventListener('close', () => { payCtx = null; });
+  async function closeBill() {
+    const c = Core.openComandas(state.orders).get(payCtx.key);
+    if (!c || !payCtx.metodo) return;
+    const { metodo, recebido } = payCtx;
+    let desconto = payCtx.desconto;
+    const em = Date.now();
+    // O desconto sai dos últimos pedidos da conta
+    const patches = [...c.pedidos].reverse().map(o => {
+      const tira = Math.min(desconto, Number(o.total) || 0);
+      desconto = Core.round2(desconto - tira);
+      const patch = { 'pagamento.pago': true, 'pagamento.metodo': metodo, 'pagamento.forma': metodo, 'pagamento.em': em, 'comanda.aberta': false, 'comanda.contaPedida': false };
+      if (tira > 0) Object.assign(patch, { desconto: Core.round2((o.desconto || 0) + tira) }, Core.totalsOf({ ...o, desconto: (o.desconto || 0) + tira }));
+      // Já foi servido: sai do quadro da cozinha
+      if (o.status === 'pronto') Object.assign(patch, { status: 'concluido', historico: [...(o.historico || []), { status: 'concluido', em }].slice(-30) });
+      return [o.id, patch];
+    });
+    if (metodo === 'Dinheiro' && recebido) patches[0][1]['pagamento.troco'] = money(recebido);
+    await safe('Erro ao fechar a conta', async () => {
+      await Promise.all(patches.map(([id, p]) => DB.updateOrder(id, p)));
+      $('payModal').close();
+      toast(`💵 ${Core.comandaLabel(c)} recebida no ${metodo}`);
+      if (cmd && Core.comandaKey(cmd) === c.key) { cmd.draft = []; closeCmd(); }
+    });
+  }
+
+  // ---------- Caixa e desempenho ----------
+  const PAY_LABEL = { Pix: 'Pix', 'Crédito': 'Cartão de crédito', 'Débito': 'Cartão de débito', Dinheiro: 'Dinheiro', Online: 'Online (link)', iFood: 'iFood' };
+  const PAY_VAR = { Pix: 'pix', 'Crédito': 'credito', 'Débito': 'debito', Dinheiro: 'dinheiro', Online: 'online', iFood: 'ifood' };
+  $('caixaSeg').addEventListener('click', e => {
+    const b = e.target.closest('[data-p]');
+    if (!b) return;
+    state.caixaPeriod = b.dataset.p;
+    $('caixaSeg').querySelectorAll('button').forEach(x => x.classList.toggle('is-on', x === b));
+    renderCaixa();
+  });
+  // Pizza (rosca) com o valor de cada forma de pagamento
+  function pieChart(r) {
+    const parts = Core.PAY_ORDER.filter(k => r.porForma[k] > 0 || ['Pix', 'Crédito', 'Débito', 'Dinheiro'].includes(k)).map(k => ({ k, v: r.porForma[k], n: r.qtdForma[k] }));
+    const total = r.recebido;
+    const R = 92, ri = 58, cx = 100, cy = 100;
+    const pt = (rad, a) => `${(cx + rad * Math.cos(a)).toFixed(2)} ${(cy + rad * Math.sin(a)).toFixed(2)}`;
+    let a = -Math.PI / 2;
+    const slices = total ? parts.filter(p => p.v > 0).map(p => {
+      const ang = p.v / total * 2 * Math.PI;
+      const color = `var(--pay-${PAY_VAR[p.k]})`;
+      const pct = (p.v / total * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+      const tip = `data-tip="${esc(PAY_LABEL[p.k])}: ${brl(p.v)} · ${pct}% · ${p.n} pagamento${p.n > 1 ? 's' : ''}"`;
+      let el;
+      if (ang >= 2 * Math.PI - 1e-6) el = `<circle cx="${cx}" cy="${cy}" r="${(R + ri) / 2}" fill="none" stroke="${color}" stroke-width="${R - ri}" ${tip}/>`;
+      else {
+        const big = ang > Math.PI ? 1 : 0;
+        el = `<path d="M ${pt(R, a)} A ${R} ${R} 0 ${big} 1 ${pt(R, a + ang)} L ${pt(ri, a + ang)} A ${ri} ${ri} 0 ${big} 0 ${pt(ri, a)} Z" fill="${color}" ${tip}/>`;
+      }
+      a += ang;
+      return el;
+    }).join('') : `<circle cx="${cx}" cy="${cy}" r="${(R + ri) / 2}" fill="none" stroke="var(--line)" stroke-width="${R - ri}"/>`;
+    return `<div class="pie__chart"><svg viewBox="0 0 200 200" role="img" aria-label="Faturamento por forma de pagamento">${slices}
+        <text x="100" y="96" text-anchor="middle" class="pie__total">${brl(total)}</text><text x="100" y="116" text-anchor="middle" class="pie__sub">recebido</text></svg>
+        <div class="pie__tip" id="pieTip" hidden></div></div>
+      <ul class="pie__legend">${parts.map(p => `<li><i style="background:var(--pay-${PAY_VAR[p.k]})"></i><span>${PAY_LABEL[p.k]}<small>${p.n} pagamento${p.n === 1 ? '' : 's'}</small></span>
+        <b>${brl(p.v)}</b><em>${total ? (p.v / total * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : 0}%</em></li>`).join('')}</ul>`;
+  }
+  $('pie').addEventListener('mousemove', e => {
+    const tip = $('pieTip');
+    const s = e.target.closest('[data-tip]');
+    if (!tip) return;
+    if (!s) { tip.hidden = true; return; }
+    const box = $('pie').querySelector('.pie__chart').getBoundingClientRect();
+    tip.textContent = s.dataset.tip;
+    tip.hidden = false;
+    tip.style.left = `${e.clientX - box.left}px`;
+    tip.style.top = `${e.clientY - box.top}px`;
+  });
+  $('pie').addEventListener('mouseleave', () => { if ($('pieTip')) $('pieTip').hidden = true; });
+  function renderCaixa() {
+    const [from, to] = periodRange(state.caixaPeriod);
+    const r = Core.cashReport(state.orders, { from, to });
+    const open = [...Core.openComandas(state.orders).values()].sort((a, b) => b.contaPedida - a.contaPedida || a.abertaEm - b.abertaEm);
+    const unpaid = state.orders.filter(o => !o.comanda?.aberta && Core.countsAsSale(o) && !o.pagamento?.pago && o.criadoEm >= startOfDay());
+    const aReceber = open.reduce((s, c) => s + c.total, 0) + unpaid.reduce((s, o) => s + (o.total || 0), 0);
+    const k = (label, v, cls = '') => `<div class="kpi ${cls}"><span>${label}</span><strong>${v}</strong></div>`;
+    $('caixaKpis').innerHTML = k('Recebido', brl(r.recebido), 'pos') + k('A receber agora', brl(aReceber)) + k('Pagamentos', r.pagos.length) + k('Dinheiro na gaveta', brl(r.porForma.Dinheiro));
+    $('pie').innerHTML = pieChart(r);
+    $('caixaOpen').innerHTML = (open.length ? `<h4>Mesas e comandas abertas</h4>${open.map(c => `<div class="drow drow--cmd${c.contaPedida ? ' is-conta' : ''}">
+        <span><b>${esc(Core.comandaLabel(c))}</b>${c.nome ? ` · ${esc(c.nome)}` : ''} <small class="muted">${c.itens} itens · ${ago(c.abertaEm)}</small>${c.contaPedida ? ' <span class="tag tag--conta">🧾 pediu a conta</span>' : ''}</span>
+        <span><b>${brl(c.total)}</b> <button type="button" class="btn btn--sm btn--yellow" data-bill="${c.key}">Fechar conta</button></span></div>`).join('')}` : '') +
+      (unpaid.length ? `<h4>Pedidos sem pagamento (hoje)</h4>${unpaid.map(o => `<div class="drow">
+        <span><b>${esc(Core.shortCode(o.id))}</b> ${esc(o.cliente?.nome || '')} <small class="muted">${origemTag(o)} · ${esc(o.pagamento?.forma || '')}${o.pagamento?.troco ? ' · troco ' + esc(o.pagamento.troco) : ''}</small></span>
+        <span><b>${brl(o.total)}</b> ${['Pix', 'Débito', 'Crédito', 'Dinheiro'].map(m => `<button type="button" class="btn btn--sm btn--ghost" data-pay="${esc(o.id)}" data-p="${m}">${m}</button>`).join('')}</span></div>`).join('')}` : '') ||
+      '<p class="muted small">Nenhuma conta aberta. 👌</p>';
+    $('caixaList').innerHTML = r.pagos.length ? `<table class="table table--cards"><thead><tr><th>Hora</th><th>Pedido</th><th>Forma</th><th>Valor</th></tr></thead><tbody>
+      ${r.pagos.slice(0, 60).map(o => `<tr><td class="tc-head"><b>${hhmm(Core.paidAt(o))}</b> <small class="muted">${new Date(Core.paidAt(o)).toLocaleDateString('pt-BR')}</small></td>
+        <td data-label="Pedido">${esc(Core.shortCode(o.id))} · ${origemTag(o)}${o.cliente?.nome ? ' · ' + esc(o.cliente.nome) : ''}</td>
+        <td data-label="Forma"><i class="dot" style="background:var(--pay-${PAY_VAR[Core.payKey(o)]})"></i>${esc(o.pagamento?.metodo || o.pagamento?.forma || '')}</td><td data-label="Valor"><b>${brl(o.total)}</b></td></tr>`).join('')}
+      </tbody></table>` : '<p class="muted small">Nenhum pagamento recebido no período.</p>';
+  }
+  $('caixaOpen').addEventListener('click', e => {
+    const bill = e.target.closest('[data-bill]')?.dataset.bill;
+    if (bill) return openBill(bill);
+    const b = e.target.closest('[data-pay]');
+    const o = b && state.orders.find(x => x.id === b.dataset.pay);
+    if (o && confirm(`Receber ${brl(o.total)} do pedido ${Core.shortCode(o.id)} no ${b.dataset.p}?`)) payOrder(o, b.dataset.p).then(() => toast(`💵 ${Core.shortCode(o.id)} recebido`));
+  });
+
+  // ---------- Estoque ----------
+  let stockFilter = 'todos', stockDirty = false;
+  const STOCK_TAG = { falta: '❌ Em falta', baixo: '⚠️ Acabando', ok: '✅ Disponível', livre: '— Sem controle' };
+  function renderStock() {
+    // Não redesenha enquanto alguém digita uma quantidade (redesenha quando sair do campo)
+    if ($('stockList').contains(document.activeElement) && document.activeElement.tagName === 'INPUT') { stockDirty = true; return; }
+    stockDirty = false;
+    const itens = state.cfg.estoque?.itens || {};
+    const q = Core.norm($('stockSearch').value);
+    const count = { falta: 0, baixo: 0, ok: 0, livre: 0 };
+    products.forEach(p => { count[Core.stockStatus(itens[p.id])]++; });
+    const k = (label, v, cls, f) => `<button type="button" class="kpi ${cls}" data-f="${f}"><span>${label}</span><strong>${v}</strong></button>`;
+    $('stockKpis').innerHTML = k('❌ Em falta', count.falta, 'neg', 'falta') + k('⚠️ Acabando', count.baixo, 'warn', 'baixo') + k('✅ Disponíveis', count.ok, 'pos', 'ok') + k('Sem controle', count.livre, '', 'livre');
+    const html = MENU.map(cat => {
+      const rows = cat.items.filter(p => (!q || Core.norm(p.name).includes(q)) && (stockFilter === 'todos' || Core.stockStatus(itens[p.id]) === stockFilter));
+      if (!rows.length) return '';
+      return `<div class="card stock-cat"><h3>${esc(cat.name)}</h3>${rows.map(p => {
+        const e = itens[p.id], st = Core.stockStatus(e), on = st !== 'livre';
+        return `<div class="srow srow--${st}" data-sid="${p.id}">
+          <span class="srow__name">${esc(p.name)}<small class="stag stag--${st}">${STOCK_TAG[st]}</small></span>
+          <span class="qty"><button type="button" data-s="dec" aria-label="Menos um">−</button><input data-s="qtd" inputmode="numeric" maxlength="5" value="${on ? e.qtd : ''}" placeholder="—" aria-label="Quantidade de ${esc(p.name)}"><button type="button" data-s="inc" aria-label="Mais um">+</button></span>
+          <label class="srow__min">mín.<input data-s="min" inputmode="numeric" maxlength="4" value="${on ? (e.min || 0) : ''}"${on ? '' : ' disabled'} aria-label="Mínimo de ${esc(p.name)}"></label>
+          ${on ? '<button type="button" class="link" data-s="off" title="Parar de controlar o estoque deste produto" aria-label="Parar de controlar">✕</button>' : '<span></span>'}
+        </div>`;
+      }).join('')}</div>`;
+    }).join('');
+    $('stockList').innerHTML = html || '<p class="muted small">Nenhum produto aqui.</p>';
+  }
+  function setStockFilter(f) {
+    stockFilter = f;
+    $('stockFilter').querySelectorAll('button').forEach(x => x.classList.toggle('is-on', x.dataset.f === f));
+    renderStock();
+  }
+  $('stockFilter').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if (b) setStockFilter(b.dataset.f); });
+  $('stockKpis').addEventListener('click', e => { const b = e.target.closest('[data-f]'); if (b) setStockFilter(stockFilter === b.dataset.f ? 'todos' : b.dataset.f); });
+  $('stockSearch').addEventListener('input', renderStock);
+  $('stockList').addEventListener('focusout', () => setTimeout(() => { if (stockDirty) renderStock(); }, 0));
+  $('stockList').addEventListener('click', e => {
+    const b = e.target.closest('button[data-s]');
+    const id = e.target.closest('[data-sid]')?.dataset.sid;
+    if (!b || !id) return;
+    const cur = state.cfg.estoque?.itens?.[id];
+    const on = typeof cur?.qtd === 'number';
+    const s = b.dataset.s;
+    if (s === 'inc') return safe('Erro no estoque', () => (on ? DB.addStock({ [id]: 1 }) : DB.setStockItem(id, { qtd: 1, min: 0 })));
+    if (s === 'dec' && on) return safe('Erro no estoque', () => DB.addStock({ [id]: -1 }));
+    if (s === 'off' && confirm(`Parar de controlar o estoque de ${products.get(id)?.name}?`)) return safe('Erro no estoque', () => DB.setStockItem(id, null));
+  });
+  $('stockList').addEventListener('change', e => {
+    const s = e.target.dataset.s;
+    const id = e.target.closest('[data-sid]')?.dataset.sid;
+    if (!id || !['qtd', 'min'].includes(s)) return;
+    const cur = state.cfg.estoque?.itens?.[id] || {};
+    const raw = e.target.value.replace(/\D/g, '');
+    if (raw === '') { stockDirty = true; return; }
+    const n = Math.min(99999, Number(raw));
+    const data = s === 'qtd' ? { qtd: n, min: Number(cur.min) || 0 } : { qtd: Number(cur.qtd) || 0, min: n };
+    safe('Erro no estoque', () => DB.setStockItem(id, data));
+  });
+
+  // ---------- Equipe (dono) ----------
+  function renderTeam() {
+    const me = state.user?.uid;
+    const ordem = { dono: 0, gerente: 1, funcionario: 2 };
+    const list = [...state.team].sort((a, b) => ordem[Core.cargoOf(a)] - ordem[Core.cargoOf(b)] || String(a.nome || '').localeCompare(b.nome || ''));
+    $('teamList').innerHTML = list.length ? list.map(m => {
+      const c = Core.cargoOf(m), self = m.uid === me;
+      return `<div class="drow team-row" data-uid="${esc(m.uid)}"><span><b>${esc(m.nome || 'Sem nome')}</b>${self ? ' <span class="tag">você</span>' : ''}<small class="muted">${esc(m.uid)}</small></span>
+        <span class="team-row__acts"><select data-t="cargo" aria-label="Cargo de ${esc(m.nome || '')}"${self ? ' disabled title="Você não pode mudar o próprio cargo"' : ''}>${Object.entries(Core.CARGOS).map(([k, v]) => `<option value="${k}"${k === c ? ' selected' : ''}>${v.icon} ${v.label}</option>`).join('')}</select>
+        ${self ? '' : '<button type="button" class="btn btn--sm btn--danger" data-t="rm">Tirar acesso</button>'}</span></div>`;
+    }).join('') : '<p class="muted small">Ninguém cadastrado ainda.</p>';
+  }
+  $('teamList').addEventListener('change', e => {
+    const uid = e.target.closest('[data-uid]')?.dataset.uid;
+    if (uid && e.target.dataset.t === 'cargo') safe('Erro ao mudar cargo', () => DB.setMember(uid, { cargo: e.target.value })).then(() => toast('Cargo atualizado ✅'));
+  });
+  $('teamList').addEventListener('click', e => {
+    const uid = e.target.closest('[data-uid]')?.dataset.uid;
+    if (!uid || e.target.dataset.t !== 'rm') return;
+    const m = state.team.find(x => x.uid === uid);
+    if (confirm(`Tirar o acesso de ${m?.nome || 'esta pessoa'} à gestão?`)) safe('Erro', () => DB.removeMember(uid)).then(() => toast('Acesso removido'));
+  });
+  $('teamForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const f = e.target.elements;
+    const uid = f.uid.value.trim(), nome = f.nome.value.trim();
+    if (!uid || !nome) return toast('Preencha o código e o nome', true);
+    if (/[/\s]/.test(uid)) return toast('Código inválido: copie exatamente o que aparece na tela da pessoa', true);
+    safe('Erro ao liberar', async () => {
+      await DB.setMember(uid, { nome, cargo: f.cargo.value, liberadoEm: Date.now() });
+      e.target.reset();
+      toast(`✅ ${nome} liberado como ${Core.CARGOS[f.cargo.value]?.label || ''}`);
     });
   });
 
@@ -756,6 +1343,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   function renderConfig() {
     const f = $('configForm').elements, l = state.cfg.loja, nf = state.cfg.nf;
     $('feeFields').innerHTML = Object.entries(taxas()).map(([k, v]) => `<label class="field">${k}<input data-fee="${k}" data-mask="percent" value="${String(v).replace('.', ',')}"></label>`).join('');
+    f.mesas.value = l.mesas || '';
     f.infinitepayHandle.value = l.infinitepayHandle || '';
     f.pagamentoOnline.checked = !!l.pagamentoOnline;
     f.webhookUrl.value = l.webhookUrl || '';
@@ -772,7 +1360,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     const f = e.target.elements;
     const fees = {};
     $('feeFields').querySelectorAll('[data-fee]').forEach(i => { fees[i.dataset.fee] = num(i.value); });
-    const loja = { infinitepayHandle: f.infinitepayHandle.value.trim().replace(/^\$/, ''), pagamentoOnline: f.pagamentoOnline.checked, webhookUrl: f.webhookUrl.value.trim(), custoEntrega: num(f.custoEntrega.value), ifoodAtivo: f.ifoodAtivo.checked, taxas: fees };
+    const loja = { mesas: Math.min(200, Math.round(num(f.mesas.value))) || 0, infinitepayHandle: f.infinitepayHandle.value.trim().replace(/^\$/, ''), pagamentoOnline: f.pagamentoOnline.checked, webhookUrl: f.webhookUrl.value.trim(), custoEntrega: num(f.custoEntrega.value), ifoodAtivo: f.ifoodAtivo.checked, taxas: fees };
     const mins = (v, d) => { const n = num(v); return v === '' || n < 0 ? d : Math.min(600, n); };
     loja.automacao = { ativo: f.autoAtivo.checked, novo: mins(f.autoNovo.value, Core.DEFAULT_AUTO.novo), preparo: mins(f.autoPreparo.value, Core.DEFAULT_AUTO.preparo), pronto: mins(f.autoPronto.value, Core.DEFAULT_AUTO.pronto), entrega: mins(f.autoEntrega.value, Core.DEFAULT_AUTO.entrega) };
     const nf = { cnpj: BaldiniMask.onlyDigits(f.cnpj.value), ncm: BaldiniMask.onlyDigits(f.ncm.value), csosn: f.csosn.value, nfAuto: f.nfAuto.checked, nfQuando: f.nfQuando.value, emissor: f.emissor.value };

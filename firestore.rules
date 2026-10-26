@@ -1,10 +1,18 @@
 rules_version = '2';
 // Regras de segurança do banco da Baldini.
-// Equipe = quem tem um documento em /equipe/{uid} (criado à mão no Console do Firebase).
+// Equipe = quem tem um documento em /equipe/{uid}, com o campo cargo: "dono", "gerente" ou "funcionario".
+// Sem o campo cargo a pessoa é tratada como dono (quem já estava na equipe antes dos cargos).
+// O dono libera as pessoas na aba "Equipe" da gestão.
 service cloud.firestore {
   match /databases/{database}/documents {
     function isStaff() {
       return request.auth != null && exists(/databases/$(database)/documents/equipe/$(request.auth.uid));
+    }
+    function cargo() {
+      return get(/databases/$(database)/documents/equipe/$(request.auth.uid)).data.get('cargo', 'dono');
+    }
+    function isOwner() {
+      return isStaff() && cargo() == 'dono';
     }
     // Pedido que o próprio cliente pode gravar pelo site
     function isCustomerOrder(d) {
@@ -18,7 +26,8 @@ service cloud.firestore {
     match /pedidos/{id} {
       // Ler um pedido pelo código (o cliente acompanha o dele); listar todos só a equipe
       allow get: if true;
-      allow list, delete: if isStaff();
+      allow list: if isStaff();
+      allow delete: if isOwner();
       allow create: if isStaff() || isCustomerOrder(request.resource.data);
       allow update: if isStaff()
         // cliente ainda montando a sacola ou enviando o pedido
@@ -28,20 +37,25 @@ service cloud.firestore {
             && request.resource.data.pagamento.diff(resource.data.pagamento).affectedKeys().hasOnly(['link']));
     }
 
-    // A loja (InfiniteTag, pagamento online) é pública; o resto da configuração é da equipe
+    // A loja (InfiniteTag, pagamento online) é pública; o resto da configuração a equipe lê e só o dono muda
     match /config/loja {
       allow get: if true;
-      allow write: if isStaff();
+      allow write: if isOwner();
     }
     match /config/{doc} {
+      allow read: if isStaff();
+      allow write: if isOwner();
+    }
+    // Estoque: qualquer pessoa da equipe dá baixa ao lançar pedido
+    match /config/estoque {
       allow read, write: if isStaff();
     }
     match /despesas/{id} {
-      allow read, write: if isStaff();
+      allow read, write: if isOwner();
     }
     match /equipe/{uid} {
-      allow get: if request.auth != null && request.auth.uid == uid;
-      allow write: if false;
+      allow get: if request.auth != null && (request.auth.uid == uid || isOwner());
+      allow list, write: if isOwner();
     }
   }
 }

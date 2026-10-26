@@ -294,4 +294,63 @@
     const n = Core.nfcePayload(order({ pagamento: { forma: 'Dinheiro', troco: 'R$ 100,00' } }), { cnpj: '1' });
     eq(n.formas_pagamento[0].valor_troco, 38.02);
   });
+
+  // ---------- Cargos ----------
+  test('cada cargo vê só as abas dele', () => {
+    ok(Core.canAccess('funcionario', 'comandas') && Core.canAccess('funcionario', 'pedidos'));
+    ok(!Core.canAccess('funcionario', 'caixa') && !Core.canAccess('funcionario', 'estoque') && !Core.canAccess('funcionario', 'lucro'));
+    ok(Core.canAccess('gerente', 'caixa') && Core.canAccess('gerente', 'estoque'));
+    ok(!Core.canAccess('gerente', 'lucro') && !Core.canAccess('gerente', 'config') && !Core.canAccess('gerente', 'equipe'));
+    ['pedidos', 'comandas', 'caixa', 'estoque', 'lucro', 'nf', 'config', 'equipe', 'sistema'].forEach(a => ok(Core.canAccess('dono', a), 'dono sem ' + a));
+    ok(!Core.canAccess('qualquer', 'caixa'), 'cargo desconhecido não vê o caixa');
+  });
+  test('quem estava na equipe sem cargo continua dono', () => {
+    eq(Core.cargoOf({ nome: 'X' }), 'dono');
+    eq(Core.cargoOf({ cargo: 'gerente' }), 'gerente');
+  });
+
+  // ---------- Mesas e comandas ----------
+  const mesa = (numero, extra = {}) => order({ id: 'M' + numero + Math.random(), origem: 'mesa', comanda: { tipo: 'mesa', numero }, ...extra });
+  test('pedido da mesa guarda a comanda', () => {
+    const o = mesa(3);
+    eq([o.origem, o.comanda.tipo, o.comanda.numero, o.comanda.aberta], ['mesa', 'mesa', 3, true]);
+  });
+  test('conta da mesa soma os envios e ignora os cancelados', () => {
+    const list = [mesa(3), mesa(3, { status: 'pronto' }), mesa(3, { status: 'cancelado' }), mesa(5), mesa(7, { comanda: { tipo: 'mesa', numero: 7, aberta: false } })];
+    const open = Core.openComandas(list);
+    eq([...open.keys()].sort(), ['mesa-3', 'mesa-5']);
+    eq(open.get('mesa-3').total, 123.96);
+    eq(open.get('mesa-3').pedidos.length, 2);
+    ok(open.get('mesa-3').pronto);
+  });
+  test('nova comanda avulsa pega o próximo número livre', () => {
+    eq(Core.nextComanda([]), 1);
+    eq(Core.nextComanda([order({ comanda: { tipo: 'comanda', numero: 1 } }), order({ comanda: { tipo: 'comanda', numero: 3 } })]), 2);
+  });
+  test('nota da mesa só sai quando a conta fecha', () => {
+    ok(!Core.shouldAutoEmit(mesa(2), { nfAuto: true }));
+    ok(Core.shouldAutoEmit(mesa(2, { comanda: { tipo: 'mesa', numero: 2, aberta: false } }), { nfAuto: true }));
+  });
+
+  // ---------- Estoque ----------
+  test('situação do estoque: em falta, acabando, ok, sem controle', () => {
+    eq(Core.stockStatus({ qtd: 0, min: 2 }), 'falta');
+    eq(Core.stockStatus({ qtd: 2, min: 2 }), 'baixo');
+    eq(Core.stockStatus({ qtd: 9, min: 2 }), 'ok');
+    eq(Core.stockStatus(undefined), 'livre');
+  });
+  test('baixa do estoque conta só os produtos controlados', () => {
+    const o = order({ itens: [{ id: 'granada', name: 'Granada', unit: 30, qty: 2 }, { id: 'coca', name: 'Coca', unit: 6, qty: 1 }, { id: 'granada', name: 'Granada', unit: 32, qty: 1 }] });
+    eq(Core.stockNeeds(o, { granada: { qtd: 10 } }), { granada: 3 });
+  });
+
+  // ---------- Caixa ----------
+  test('caixa separa o recebido por forma de pagamento', () => {
+    const pago = (forma, total) => ({ ...order(), id: forma + total, total, pagamento: { pago: true, metodo: forma, em: 1000 } });
+    const r = Core.cashReport([pago('Pix', 10), pago('Crédito', 20), pago('Débito', 5), pago('Dinheiro', 7), pago('Pix', 3),
+      { ...order(), total: 99, pagamento: { pago: false } }, { ...pago('Pix', 50), status: 'cancelado' }]);
+    eq(r.porForma.Pix, 13); eq(r.porForma['Crédito'], 20); eq(r.porForma['Débito'], 5); eq(r.porForma.Dinheiro, 7);
+    eq([r.recebido, r.pagos.length, r.qtdForma.Pix], [45, 5, 2]);
+    eq(Core.cashReport([pago('Pix', 10)], { from: 2000 }).recebido, 0);
+  });
 });
