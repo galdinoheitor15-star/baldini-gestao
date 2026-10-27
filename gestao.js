@@ -1240,6 +1240,11 @@ document.addEventListener('gesturestart', e => e.preventDefault());
         <span><b>${esc(Core.shortCode(o.id))}</b> ${esc(o.cliente?.nome || '')} <small class="muted">${origemTag(o)} · ${esc(o.pagamento?.forma || '')}${o.pagamento?.troco ? ' · troco ' + esc(o.pagamento.troco) : ''}</small></span>
         <span><b>${brl(o.total)}</b> ${['Pix', 'Débito', 'Crédito', 'Dinheiro'].map(m => `<button type="button" class="btn btn--sm btn--ghost" data-pay="${esc(o.id)}" data-p="${m}">${m}</button>`).join('')}</span></div>`).join('')}` : '') ||
       '<p class="muted small">Nenhuma conta aberta. 👌</p>';
+    // Contas já fechadas hoje: o caixa reabre para corrigir sem sair daqui
+    const fechadas = Core.closedComandas(state.orders, startOfDay());
+    if (fechadas.length) $('caixaOpen').insertAdjacentHTML('beforeend', `<details class="closed closed--caixa"><summary>🔓 Contas fechadas hoje (${fechadas.length}) <small class="muted">· reabrir para editar</small></summary>
+      ${fechadas.map(c => `<div class="drow"><span><b>${esc(Core.comandaLabel(c))}</b>${c.nome ? ` · ${esc(c.nome)}` : ''} <small class="muted">fechada às ${hhmm(c.fechadaEm)} · ${esc(c.metodo)}</small></span>
+        <span><b>${brl(c.total)}</b> <button type="button" class="btn btn--sm btn--ghost" data-reopen="${esc(c.key)}">🔓 Reabrir</button></span></div>`).join('')}</details>`);
     $('caixaList').innerHTML = r.pagos.length ? `<table class="table table--cards"><thead><tr><th>Hora</th><th>Pedido</th><th>Forma</th><th>Valor</th></tr></thead><tbody>
       ${r.pagos.slice(0, 60).map(o => `<tr><td class="tc-head"><b>${hhmm(Core.paidAt(o))}</b> <small class="muted">${new Date(Core.paidAt(o)).toLocaleDateString('pt-BR')}</small></td>
         <td data-label="Pedido">${esc(Core.shortCode(o.id))} · ${origemTag(o)}${o.cliente?.nome ? ' · ' + esc(o.cliente.nome) : ''}</td>
@@ -1249,6 +1254,9 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   $('caixaOpen').addEventListener('click', e => {
     const bill = e.target.closest('[data-bill]')?.dataset.bill;
     if (bill) return openBill(bill);
+    const reopen = e.target.closest('[data-reopen]')?.dataset.reopen;
+    const fechada = reopen && Core.closedComandas(state.orders, startOfDay()).find(x => x.key === reopen);
+    if (fechada) return reopenBill(fechada);
     const b = e.target.closest('[data-pay]');
     const o = b && state.orders.find(x => x.id === b.dataset.pay);
     if (o && confirm(`Receber ${brl(o.total)} do pedido ${Core.shortCode(o.id)} no ${b.dataset.p}?`)) payOrder(o, b.dataset.p).then(() => toast(`💵 ${Core.shortCode(o.id)} recebido`));

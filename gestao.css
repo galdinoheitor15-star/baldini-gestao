@@ -481,3 +481,4 @@ button.kpi:hover { border-color: var(--yellow); }
   .cmd-top .cmd-new { width: 100%; }
   .cmd-top .cmd-new .btn { flex: 1; }
 }
+.closed--caixa { margin-top: 12px; padding: 0; background: none; border: 0; }
