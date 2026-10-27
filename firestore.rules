@@ -14,6 +14,9 @@ service cloud.firestore {
     function isOwner() {
       return isStaff() && cargo() == 'dono';
     }
+    function isManager() {
+      return isStaff() && cargo() in ['dono', 'gerente'];
+    }
     // Pedido que o próprio cliente pode gravar pelo site
     function isCustomerOrder(d) {
       return d.origem == 'site'
@@ -46,6 +49,11 @@ service cloud.firestore {
       allow read: if isStaff();
       allow write: if isOwner();
     }
+    // Cardápio (preços novos, produtos novos, ocultos): o site lê; dono e gerente mudam
+    match /config/cardapio {
+      allow get: if true;
+      allow write: if isManager();
+    }
     // Estoque: qualquer pessoa da equipe dá baixa ao lançar pedido
     match /config/estoque {
       allow read, write: if isStaff();
@@ -53,9 +61,13 @@ service cloud.firestore {
     match /despesas/{id} {
       allow read, write: if isOwner();
     }
+    // Dono cuida de todo mundo; gerente só cria e tira o acesso de funcionários
     match /equipe/{uid} {
-      allow get: if request.auth != null && (request.auth.uid == uid || isOwner());
-      allow list, write: if isOwner();
+      allow get: if request.auth != null && (request.auth.uid == uid || isManager());
+      allow list: if isManager();
+      allow update: if isOwner();
+      allow create: if isOwner() || (isManager() && request.resource.data.cargo == 'funcionario');
+      allow delete: if isOwner() || (isManager() && resource.data.get('cargo', 'dono') == 'funcionario');
     }
   }
 }

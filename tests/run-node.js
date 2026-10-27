@@ -28,6 +28,23 @@ const spec = require(path.join(__dirname, 'spec.js'));
     }
   });
   results.push({
+    name: 'ajustes do cardápio (preço, produto novo, escondido) valem do mesmo jeito no site e na gestão',
+    fn: async () => {
+      const src = await fetch(SITE + 'menu-ajustes.js', { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('menu-ajustes.js não existe no site'); return r.text(); });
+      const sb = { window: {} }; sb.self = sb.window;
+      vm.runInNewContext(src, sb);
+      const C = sb.window.BaldiniCardapio;
+      const cat = MENU.find(c => c.items.some(p => p.price > 0));
+      const p = cat.items.find(x => x.price > 0);
+      const m = C.aplicar(MENU, { precos: { [p.id]: 99.5 }, ocultos: [cat.items[1]?.id], novos: [{ id: 'novo-x', cat: cat.id, name: 'Produto X', price: 7 }] });
+      const c2 = m.find(c => c.id === cat.id);
+      if (c2.items.find(x => x.id === p.id).price !== 99.5) throw new Error('preço não mudou');
+      if (cat.items[1] && c2.items.some(x => x.id === cat.items[1].id)) throw new Error('escondido continua aparecendo');
+      if (!c2.items.some(x => x.id === 'novo-x' && x.price === 7)) throw new Error('produto novo não entrou');
+      if (MENU.find(c => c.id === cat.id).items.find(x => x.id === p.id).price === 99.5) throw new Error('mexeu no cardápio original');
+    }
+  });
+  results.push({
     name: 'site de pedidos carrega o banco, as regras e o bot',
     fn: async () => {
       const html = await fetch(SITE).then(r => r.text());

@@ -22,8 +22,8 @@ No modo demonstração os dados ficam só no navegador (o site e a gestão se en
 ## Cargos: quem vê o quê
 | Cargo | Abas |
 |---|---|
-| 🧑‍🍳 **Funcionário** | Mesas e comandas (abrir, lançar, trocar/juntar, cancelar, pedir e **fechar a conta**) e Pedidos |
-| 🧑‍💼 **Gerente** | Caixa (fechar conta + gráfico de pizza por Pix, crédito, débito e dinheiro), Estoque, Mesas e comandas, Pedidos e Lançar pedido |
+| 🧑‍🍳 **Funcionário** | Mesas, comandas e **retiradas** (abrir, lançar, trocar/juntar, cancelar, tirar item, pedir, **fechar e reabrir a conta**) e Pedidos |
+| 🧑‍💼 **Gerente** | Caixa (fechar conta + gráfico de pizza por Pix, crédito, débito e dinheiro), Estoque, **Cardápio** (preços e produtos novos), Equipe (cria e tira o acesso de **funcionários**), Mesas e comandas, Pedidos e Lançar pedido |
 | 👑 **Dono** | Tudo, incluindo Lucro, Nota fiscal, Equipe e Configurações |
 
 - Na aba **👥 Equipe** o dono cria o acesso com **usuário e senha** (a pessoa entra em "Entrar com usuário e senha"), ou libera quem entrou com Google colando o código que aparece na tela da pessoa.
@@ -32,6 +32,12 @@ No modo demonstração os dados ficam só no navegador (o site e a gestão se en
 - O dono tem o seletor **"Ver como"** no topo para conferir a tela de cada cargo.
 - Para mudar quais abas cada cargo vê, edite a lista `CARGOS` em `baldini-core.js`.
 - **Depois de atualizar, publique de novo o `firestore.rules`** (passo 1.5): as regras novas é que deixam o dono liberar pessoas e impedem gerente/funcionário de mudar configurações, despesas e apagar pedidos.
+
+## Cardápio (preços e produtos novos)
+Na aba **🍔 Cardápio**, dono e gerente mudam preços (inclusive das opções, como tamanho da batata e sabor do refri), escondem produtos e adicionam produtos novos. Fica salvo no banco (`config/cardapio`) e vale para o site e para a gestão na hora: o site lê os ajustes pelo arquivo `menu-ajustes.js` do repositório `baldini-burguer`. Produto novo entra sem foto e sem adicionais.
+
+## Retirada na loja
+Em **Mesas e comandas → 🥡 Nova retirada**: para quem pediu no balcão, no iFood ou por telefone e vai buscar na loja (sem mesa). Ao fechar a conta de uma retirada do iFood, aparece a opção "Pago no iFood".
 
 ## Estoque
 Na aba Estoque, digite a quantidade de cada produto e o mínimo. Toda venda (site, balcão ou mesa) dá baixa sozinha e pedido cancelado devolve. Produtos em falta aparecem marcados na hora de lançar o pedido.

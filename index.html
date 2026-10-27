@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="gestao.css?v=20261026d">
+  <link rel="stylesheet" href="gestao.css?v=20261027a">
 </head>
 <body>
 
@@ -80,6 +80,7 @@
     <button type="button" data-tab="caixa">💵 Caixa <em id="tabCaixaCount"></em></button>
     <button type="button" data-tab="estoque">📦 Estoque <em id="tabStockCount"></em></button>
     <button type="button" data-tab="novo">➕ Lançar pedido</button>
+    <button type="button" data-tab="cardapio">🍔 Cardápio</button>
     <button type="button" data-tab="entregas">🛵 Entregadores</button>
     <button type="button" data-tab="lucro">💰 Lucro</button>
     <button type="button" data-tab="nf">🧾 Nota fiscal</button>
@@ -106,11 +107,19 @@
         <button type="button" data-f="todas" class="is-on">Todas</button>
         <button type="button" data-f="ocupadas">Ocupadas</button>
         <button type="button" data-f="livres">Livres</button>
+        <button type="button" data-f="retiradas">Retiradas</button>
       </div>
-      <button type="button" class="btn btn--yellow btn--sm" id="newComanda">➕ Nova comanda avulsa</button>
+      <div class="row cmd-new">
+        <button type="button" class="btn btn--yellow btn--sm" id="newRetirada">🥡 Nova retirada</button>
+        <button type="button" class="btn btn--ghost btn--sm" id="newComanda">➕ Comanda avulsa</button>
+      </div>
     </div>
     <div class="tables" id="tables"></div>
-    <p class="muted small cmd-legend"><span class="dot dot--livre"></span>Livre <span class="dot dot--ocupada"></span>Ocupada <span class="dot dot--pronto"></span>Pedido pronto p/ servir <span class="dot dot--conta"></span>Pediu a conta</p>
+    <p class="muted small cmd-legend"><span class="dot dot--livre"></span>Livre <span class="dot dot--ocupada"></span>Ocupada <span class="dot dot--pronto"></span>Pedido pronto <span class="dot dot--conta"></span>Pediu a conta</p>
+    <details class="card closed">
+      <summary>🔓 Contas fechadas hoje <span id="closedCount"></span> <small class="muted">· reabrir para editar</small></summary>
+      <div id="closedList"></div>
+    </details>
   </section>
 
   <!-- Caixa e desempenho (gerente) -->
@@ -155,6 +164,34 @@
     </div>
     <p class="muted small">Digite a quantidade que tem de cada produto. Cada venda (site, balcão ou mesa) dá baixa sozinha e o pedido cancelado devolve. <b>Mínimo</b> é a partir de quando o produto aparece como "acabando". Produto sem quantidade fica "sem controle" e nunca aparece como em falta.</p>
     <div id="stockList"></div>
+  </section>
+
+  <!-- Cardápio (dono e gerente): preços, produtos novos e escondidos. Vale para o site e a gestão. -->
+  <section class="view" id="view-cardapio" hidden>
+    <p class="muted small" id="menuInfo">Mudou aqui, muda no site e na gestão na hora. Pedidos que já foram feitos continuam com o preço antigo.</p>
+    <div class="split">
+      <form class="card" id="newProdForm">
+        <h2>Adicionar produto</h2>
+        <div class="grid2">
+          <label class="field">Categoria<select name="cat" id="newProdCat"></select></label>
+          <label class="field">Preço<input name="preco" data-mask="money" placeholder="R$ 0,00" required></label>
+        </div>
+        <label class="field">Nome<input name="nome" maxlength="80" required placeholder="Ex.: Bomba Picanha"></label>
+        <label class="field">Descrição (opcional)<textarea name="desc" rows="2" maxlength="300" placeholder="Ex.: Blend 150g, queijo, picanha fatiada..."></textarea></label>
+        <button class="btn btn--yellow btn--block" type="submit">Adicionar ao cardápio</button>
+      </form>
+      <div class="card">
+        <h2>Como funciona</h2>
+        <ul class="muted small menu-help">
+          <li>Digite o preço novo e saia do campo: salva sozinho.</li>
+          <li>Desmarque <b>No cardápio</b> para esconder o produto do site e da gestão (ex.: acabou de vez).</li>
+          <li>Produtos com tamanho ou sabor (batata, refri, combos) têm o preço em cada opção: toque em <b>Preços das opções</b>.</li>
+          <li>Produto novo entra sem foto e sem adicionais.</li>
+        </ul>
+      </div>
+    </div>
+    <input class="search menu-search" id="menuSearch" type="search" placeholder="Buscar produto..." aria-label="Buscar produto no cardápio" maxlength="60">
+    <div id="menuEdit"></div>
   </section>
 
   <!-- Lançar pedido -->
@@ -281,7 +318,7 @@
     <div class="split">
       <div class="card">
         <h2>Pessoas da equipe</h2>
-        <p class="muted small">O cargo define o que cada um vê: <b>Funcionário</b> → mesas/comandas (inclusive fechar a conta) e pedidos · <b>Gerente</b> → caixa, desempenho, estoque, mesas e pedidos · <b>Dono</b> → tudo.</p>
+        <p class="muted small">O cargo define o que cada um vê: <b>Funcionário</b> → mesas/comandas (inclusive fechar a conta) e pedidos · <b>Gerente</b> → caixa, desempenho, estoque, cardápio, mesas e pedidos, e cria ou tira o acesso de funcionários · <b>Dono</b> → tudo.</p>
         <div id="teamList"></div>
       </div>
       <div class="team-forms">
@@ -400,12 +437,14 @@
 
 <!-- O cardápio vem do site de pedidos: mudou lá, muda aqui -->
 <script src="https://galdinoheitor15-star.github.io/baldini-burguer/menu-data.js"></script>
-<script src="mascaras.js?v=20261026d"></script>
-<script src="baldini-core.js?v=20261026d"></script>
-<script src="firebase-config.js?v=20261026d"></script>
+<!-- Preços, produtos novos e escondidos (editados na aba Cardápio) -->
+<script src="https://galdinoheitor15-star.github.io/baldini-burguer/menu-ajustes.js"></script>
+<script src="mascaras.js?v=20261027a"></script>
+<script src="baldini-core.js?v=20261027a"></script>
+<script src="firebase-config.js?v=20261027a"></script>
 <script>window.BALDINI_OFFLINE = true;</script>
-<script src="baldini-db.js?v=20261026d"></script>
+<script src="baldini-db.js?v=20261027a"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
-<script src="gestao.js?v=20261026d" defer></script>
+<script src="gestao.js?v=20261027a" defer></script>
 </body>
 </html>

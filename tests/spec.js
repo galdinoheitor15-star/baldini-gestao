@@ -300,11 +300,13 @@
     ok(Core.canAccess('funcionario', 'comandas') && Core.canAccess('funcionario', 'pedidos'));
     ok(!Core.canAccess('funcionario', 'caixa') && !Core.canAccess('funcionario', 'estoque') && !Core.canAccess('funcionario', 'lucro'));
     ok(Core.canAccess('gerente', 'caixa') && Core.canAccess('gerente', 'estoque'));
-    ok(!Core.canAccess('gerente', 'lucro') && !Core.canAccess('gerente', 'config') && !Core.canAccess('gerente', 'equipe'));
+    ok(!Core.canAccess('gerente', 'lucro') && !Core.canAccess('gerente', 'config') && !Core.canAccess('gerente', 'nf'));
     ['pedidos', 'comandas', 'caixa', 'estoque', 'lucro', 'nf', 'config', 'equipe', 'sistema'].forEach(a => ok(Core.canAccess('dono', a), 'dono sem ' + a));
     ok(!Core.canAccess('qualquer', 'caixa'), 'cargo desconhecido não vê o caixa');
     ['funcionario', 'gerente', 'dono'].forEach(c => ok(Core.canDo(c, 'fecharConta'), c + ' não fecha conta'));
     ok(!Core.canDo('qualquer', 'fecharConta'));
+    ok(Core.canAccess('gerente', 'cardapio') && Core.canAccess('gerente', 'equipe') && Core.canAccess('dono', 'cardapio'));
+    ok(!Core.canAccess('funcionario', 'cardapio') && !Core.canAccess('funcionario', 'equipe'));
   });
   test('quem estava na equipe sem cargo continua dono', () => {
     eq(Core.cargoOf({ nome: 'X' }), 'dono');
@@ -332,6 +334,20 @@
   test('nota da mesa só sai quando a conta fecha', () => {
     ok(!Core.shouldAutoEmit(mesa(2), { nfAuto: true }));
     ok(Core.shouldAutoEmit(mesa(2, { comanda: { tipo: 'mesa', numero: 2, aberta: false } }), { nfAuto: true }));
+  });
+
+  test('retirada na loja tem número próprio, separado das mesas', () => {
+    const r = order({ origem: 'ifood', comanda: { tipo: 'retirada', numero: 1 } });
+    eq([r.comanda.tipo, Core.comandaLabel(r.comanda), Core.comandaKey(r.comanda)], ['retirada', 'Retirada 1', 'retirada-1']);
+    eq(Core.nextComanda([r], 'retirada'), 2);
+    eq(Core.nextComanda([r], 'comanda'), 1);
+    eq(Core.openComandas([r]).get('retirada-1').origem, 'ifood');
+  });
+  test('conta fechada aparece para reabrir, separada por fechamento', () => {
+    const pago = (n, em) => mesa(n, { comanda: { tipo: 'mesa', numero: n, aberta: false }, pagamento: { pago: true, metodo: 'Pix', em } });
+    const list = Core.closedComandas([pago(3, 1000), pago(3, 1000), pago(3, 5000), pago(4, 2000), mesa(5), { ...pago(6, 3000), status: 'cancelado' }]);
+    eq(list.map(c => [c.key, c.pedidos.length]), [['mesa-3@5000', 1], ['mesa-4@2000', 1], ['mesa-3@1000', 2]]);
+    eq(Core.closedComandas([pago(3, 1000)], 2000).length, 0);
   });
 
   // ---------- Estoque ----------

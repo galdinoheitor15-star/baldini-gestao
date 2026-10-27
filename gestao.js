@@ -4,7 +4,11 @@ document.addEventListener('gesturestart', e => e.preventDefault());
 (() => {
   const Core = window.BaldiniCore;
   const DB = window.BaldiniDB;
-  const MENU = window.MENU || [];
+  // Cardápio do site + ajustes feitos na aba Cardápio (preços, produtos novos e escondidos)
+  const BASE_MENU = window.MENU || [];
+  const Cardapio = window.BaldiniCardapio;
+  const MENU = [];
+  let menuFull = [];
   // Site de pedidos: de lá vêm o cardápio e as fotos, e é para lá que o cliente volta depois de pagar
   const SITE = 'https://galdinoheitor15-star.github.io/baldini-burguer/';
   const siteImg = src => (src && !/^https?:/.test(src) ? SITE + src : src);
@@ -17,11 +21,17 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   const num = v => Number(String(v ?? '').replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
   const money = v => (window.BaldiniMask ? BaldiniMask.format('money', Math.round((Number(v) || 0) * 100)) : (Number(v) || 0).toFixed(2).replace('.', ','));
   const products = new Map();
-  MENU.forEach(c => c.items.forEach(p => products.set(p.id, { ...p, cat: c.id })));
+  function applyMenu(aj) {
+    menuFull = Cardapio ? Cardapio.aplicar(BASE_MENU, aj, { manterOcultos: true }) : JSON.parse(JSON.stringify(BASE_MENU));
+    MENU.splice(0, MENU.length, ...menuFull.map(c => ({ ...c, items: c.items.filter(p => !p.oculto) })).filter(c => c.items.length));
+    products.clear();
+    menuFull.forEach(c => c.items.forEach(p => products.set(p.id, { ...p, cat: c.id })));
+  }
+  applyMenu(Cardapio?.guardado() || {});
 
   const state = {
     orders: [], expenses: [], team: [], tab: 'pedidos', period: 'hoje', caixaPeriod: 'hoje',
-    cfg: { loja: {}, custos: {}, mensagens: {}, nf: {}, estoque: {} },
+    cfg: { loja: {}, custos: {}, mensagens: {}, nf: {}, estoque: {}, cardapio: Cardapio?.guardado() || {} },
     cargo: 'funcionario', cargoReal: 'funcionario', contaSeen: new Set(), firstContas: true,
     seen: new Set(), firstLoad: true, sound: localGet('gestao-som', true)
   };
@@ -128,7 +138,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     const verComo = localGet('gestao-ver-como', 'dono');
     state.cargo = state.cargoReal === 'dono' && Core.CARGOS[verComo] ? verComo : state.cargoReal;
     applyRole();
-    if (state.cargoReal === 'dono') DB.watchTeam(list => { state.team = list; if (state.tab === 'equipe') renderTeam(); }, e => console.warn('equipe', e));
+    if (['dono', 'gerente'].includes(state.cargoReal)) DB.watchTeam(list => { state.team = list; if (state.tab === 'equipe') renderTeam(); }, e => console.warn('equipe', e));
     setBadge(DB.mode === 'firebase' ? null : { aoVivo: true, em: Date.now() });
     $('soundBtn').classList.toggle('is-off', !state.sound);
     watchConfigs();
@@ -177,6 +187,18 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     });
     DB.watchConfig('custos', v => { state.cfg.custos = v || {}; refreshForm('costList'); if (state.tab === 'lucro') renderProfit(); });
     DB.watchConfig('mensagens', v => { state.cfg.mensagens = v || {}; refreshForm('msgForm'); });
+    DB.watchConfig('cardapio', v => {
+      let aj = {};
+      try { aj = JSON.parse(v?.dados || '{}'); } catch (e) { console.warn('cardápio', e); }
+      state.cfg.cardapio = aj;
+      Cardapio?.guardar(aj);
+      applyMenu(aj);
+      renderPos();
+      if ($('cmdModal').open) renderCmdMenu();
+      if (state.tab === 'estoque') renderStock();
+      if (state.tab === 'cardapio') renderMenuEdit();
+      if (!dirtyForms.has('costList')) renderCosts();
+    });
     DB.watchConfig('estoque', v => {
       state.cfg.estoque = v || {};
       autoStock(state.orders);
@@ -202,6 +224,11 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     const tabs = $('tabs');
     tabs.querySelectorAll('[data-tab]').forEach(b => { b.hidden = !can(b.dataset.tab); });
     c.abas.forEach(a => { const b = tabs.querySelector(`[data-tab="${a}"]`); if (b) tabs.appendChild(b); });
+    // Gerente só cria acesso de funcionário
+    document.querySelectorAll('#accountForm [name=cargo], #teamForm [name=cargo]').forEach(sel => {
+      [...sel.options].forEach(o => { o.hidden = o.disabled = state.cargo !== 'dono' && o.value !== 'funcionario'; });
+      if (sel.selectedOptions[0]?.disabled) sel.value = 'funcionario';
+    });
     goTab(c.abas[0]);
   }
   $('roleView').addEventListener('change', e => {
@@ -227,6 +254,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     if (state.tab === 'caixa') renderCaixa();
     if (state.tab === 'estoque') renderStock();
     if (state.tab === 'equipe') renderTeam();
+    if (state.tab === 'cardapio') renderMenuEdit();
     if (state.tab === 'entregas') renderDeliveries();
     if (state.tab === 'lucro') renderProfit();
     if (state.tab === 'nf') renderNf();
@@ -321,14 +349,14 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     if (o.pagamento?.pago) return `<span class="tag tag--ok">Pago · ${esc(o.pagamento.metodo || o.pagamento.forma)}</span>`;
     return `<span class="tag">${esc(o.pagamento?.forma || 'Pix')}${o.pagamento?.troco ? ' · troco ' + esc(o.pagamento.troco) : ''}</span>`;
   }
-  const origemTag = o => (o.comanda ? `🍽 ${Core.comandaLabel(o.comanda)}` : { site: '🌐 Site', balcao: '🏪 Balcão', whatsapp: '💬 WhatsApp', ifood: '🛵 iFood', mesa: '🍽 Mesa' }[o.origem] || o.origem);
+  const origemTag = o => (o.comanda ? `${o.comanda.tipo === 'retirada' ? '🥡' : '🍽'} ${Core.comandaLabel(o.comanda)}${o.comanda.tipo === 'retirada' && o.origem === 'ifood' ? ' · iFood' : ''}` : { site: '🌐 Site', balcao: '🏪 Balcão', whatsapp: '💬 WhatsApp', ifood: '🛵 iFood', mesa: '🍽 Mesa' }[o.origem] || o.origem);
 
   function orderCard(o) {
     const next = Core.nextStatus(o);
     const live = o.status === 'montando';
     return `<article class="ocard${live ? ' ocard--live' : ''}" data-id="${esc(o.id)}">
       <header><b>${esc(Core.shortCode(o.id))}</b><span class="muted">${origemTag(o)} · ${ago(o.criadoEm)}</span></header>
-      <p class="ocard__who">${o.comanda ? `<span class="tag tag--mesa">🍽 ${esc(Core.comandaLabel(o.comanda))}</span> ` : ''}${esc(o.cliente?.nome || (live ? 'Cliente escolhendo...' : o.comanda ? '' : 'Sem nome'))}${o.entrega?.bairro ? ` · ${esc(o.entrega.bairro)}` : ''}</p>
+      <p class="ocard__who">${o.comanda ? `<span class="tag tag--mesa">${o.comanda.tipo === 'retirada' ? '🥡' : '🍽'} ${esc(Core.comandaLabel(o.comanda))}</span> ` : ''}${esc(o.cliente?.nome || (live ? 'Cliente escolhendo...' : o.comanda ? '' : 'Sem nome'))}${o.entrega?.bairro ? ` · ${esc(o.entrega.bairro)}` : ''}</p>
       <p class="ocard__items">${esc(itemsSummary(o))}</p>
       <footer>
         <strong>${brl(o.total)}</strong>${live ? '<span class="tag tag--live">ao vivo</span>' : payBadge(o)}
@@ -642,7 +670,8 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   function renderPos() {
     $('posCats').innerHTML = MENU.map(c => `<button type="button" data-cat="${c.id}" class="${c.id === posCat ? 'is-on' : ''}">${esc(c.name)}</button>`).join('');
     const q = Core.norm($('posSearch').value);
-    const items = q ? [...products.values()].filter(p => Core.norm(p.name).includes(q)) : (MENU.find(c => c.id === posCat)?.items || []);
+    if (!MENU.some(c => c.id === posCat)) posCat = MENU[0]?.id;
+    const items = q ? [...products.values()].filter(p => !p.oculto && Core.norm(p.name).includes(q)) : (MENU.find(c => c.id === posCat)?.items || []);
     $('posGrid').innerHTML = productTiles(items);
     renderPosCart();
   }
@@ -794,16 +823,44 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     [...open.values()].filter(c => !tiles.some(t => t.key === c.key)).sort((a, b) => a.tipo.localeCompare(b.tipo) || a.numero - b.numero).forEach(c => tiles.push(c));
     const ocupadas = tiles.filter(t => !t.livre);
     const mesasOcup = ocupadas.filter(t => t.tipo === 'mesa').length;
-    const avulsas = ocupadas.length - mesasOcup;
-    $('cmdSum').innerHTML = `<b>${mesasOcup}</b> de ${mesasCount()} mesas ocupadas${avulsas ? ` · <b>${avulsas}</b> comanda${avulsas > 1 ? 's' : ''} avulsa${avulsas > 1 ? 's' : ''}` : ''} · <b>${brl(ocupadas.reduce((s, c) => s + c.total, 0))}</b> em aberto`;
-    const show = tiles.filter(t => cmdFilter === 'todas' || (cmdFilter === 'livres' ? t.livre : !t.livre));
+    const avulsas = ocupadas.filter(t => t.tipo === 'comanda').length;
+    const retiradas = ocupadas.filter(t => t.tipo === 'retirada').length;
+    $('cmdSum').innerHTML = `<b>${mesasOcup}</b> de ${mesasCount()} mesas ocupadas${avulsas ? ` · <b>${avulsas}</b> comanda${avulsas > 1 ? 's' : ''} avulsa${avulsas > 1 ? 's' : ''}` : ''}${retiradas ? ` · <b>${retiradas}</b> retirada${retiradas > 1 ? 's' : ''}` : ''} · <b>${brl(ocupadas.reduce((s, c) => s + c.total, 0))}</b> em aberto`;
+    const show = tiles.filter(t => cmdFilter === 'todas' || (cmdFilter === 'livres' ? t.livre : cmdFilter === 'retiradas' ? t.tipo === 'retirada' : !t.livre));
     $('tables').innerHTML = show.map(t => {
-      if (t.livre) return `<button type="button" class="tbl" data-cmd="${t.key}"><small>${t.tipo === 'mesa' ? 'Mesa' : 'Comanda'}</small><b>${t.numero}</b><span class="muted">Livre</span></button>`;
-      const cls = t.contaPedida ? ' tbl--conta' : t.pronto ? ' tbl--pronto' : ' tbl--ocupada';
-      const flag = t.contaPedida ? '<em>🧾 Pediu a conta</em>' : t.pronto ? '<em>🔔 Pronto p/ servir</em>' : t.cozinha ? '<em class="is-soft">🔥 Na cozinha</em>' : '';
-      return `<button type="button" class="tbl${cls}" data-cmd="${t.key}"><small>${t.tipo === 'mesa' ? 'Mesa' : 'Comanda'}</small><b>${t.numero}</b>
+      const tipo = Core.TIPO_LABEL[t.tipo];
+      if (t.livre) return `<button type="button" class="tbl" data-cmd="${t.key}"><small>${tipo}</small><b>${t.numero}</b><span class="muted">Livre</span></button>`;
+      const cls = (t.contaPedida ? ' tbl--conta' : t.pronto ? ' tbl--pronto' : ' tbl--ocupada') + (t.tipo === 'retirada' ? ' tbl--retirada' : '');
+      const flag = t.contaPedida ? '<em>🧾 Pediu a conta</em>' : t.pronto ? `<em>🔔 Pronto p/ ${t.tipo === 'retirada' ? 'retirar' : 'servir'}</em>` : t.cozinha ? '<em class="is-soft">🔥 Na cozinha</em>' : '';
+      return `<button type="button" class="tbl${cls}" data-cmd="${t.key}"><small>${t.tipo === 'retirada' ? `🥡 ${tipo} · ${ORIGEM_LABEL[t.origem] || 'Balcão'}` : tipo}</small><b>${t.numero}</b>
         ${t.nome ? `<span class="tbl__name">${esc(t.nome)}</span>` : ''}<strong>${brl(t.total)}</strong><span class="muted">${t.itens} ${t.itens === 1 ? 'item' : 'itens'} · ${ago(t.abertaEm)}</span>${flag}</button>`;
     }).join('') || '<p class="muted small">Nada aqui.</p>';
+    renderClosed();
+  }
+  // Contas fechadas hoje: dá para reabrir para corrigir ou acrescentar
+  function renderClosed() {
+    const list = Core.closedComandas(state.orders, startOfDay());
+    $('closedCount').textContent = list.length ? `(${list.length})` : '';
+    $('closedList').innerHTML = list.length ? list.map(c => `<div class="drow"><span><b>${esc(Core.comandaLabel(c))}</b>${c.nome ? ` · ${esc(c.nome)}` : ''} <small class="muted">fechada às ${hhmm(c.fechadaEm)} · ${esc(c.metodo)}</small></span>
+      <span><b>${brl(c.total)}</b> <button type="button" class="btn btn--sm btn--ghost" data-reopen="${esc(c.key)}">🔓 Reabrir</button></span></div>`).join('') : '<p class="muted small">Nenhuma conta fechada hoje.</p>';
+  }
+  $('closedList').addEventListener('click', e => {
+    const key = e.target.closest('[data-reopen]')?.dataset.reopen;
+    const c = key && Core.closedComandas(state.orders, startOfDay()).find(x => x.key === key);
+    if (c) reopenBill(c);
+  });
+  async function reopenBill(c) {
+    const label = Core.comandaLabel(c);
+    const ocupada = Core.openComandas(state.orders).get(Core.comandaKey(c));
+    const nf = c.pedidos.some(o => Core.NF_STATUS_OK.includes(o.nf?.status));
+    if (!confirm(`Reabrir a ${label} (${brl(c.total)}, paga no ${c.metodo})?\n\nO pagamento é desfeito e a conta volta a ficar aberta para editar.` +
+      (ocupada ? `\n\n⚠️ A ${label} já tem outra conta aberta: as duas vão ficar juntas.` : '') +
+      (nf ? '\n\n⚠️ A nota fiscal desta conta já foi emitida.' : ''))) return;
+    await safe('Erro ao reabrir', () => Promise.all(c.pedidos.map(o => DB.updateOrder(o.id, {
+      'comanda.aberta': true, 'comanda.contaPedida': false, 'pagamento.pago': false, 'pagamento.metodo': '', 'pagamento.forma': 'A definir', 'pagamento.em': 0, 'pagamento.troco': ''
+    }))));
+    toast(`🔓 ${label} reaberta`);
+    openCmd(c.tipo, c.numero);
   }
   $('cmdFilter').addEventListener('click', e => {
     const b = e.target.closest('[data-f]');
@@ -819,6 +876,8 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     openCmd(tipo, Number(n));
   });
   $('newComanda').addEventListener('click', () => openCmd('comanda', Core.nextComanda(state.orders)));
+  $('newRetirada').addEventListener('click', () => openCmd('retirada', Core.nextComanda(state.orders, 'retirada')));
+  const ORIGEM_LABEL = { balcao: 'Balcão', ifood: 'iFood', whatsapp: 'WhatsApp/telefone', site: 'Site', mesa: 'Mesa' };
 
   // Tela da mesa: cardápio de um lado, conta do outro. Lança, troca, cancela e pede a conta sem sair dali.
   let cmd = null;
@@ -827,7 +886,10 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   const currentCmd = () => (cmd ? Core.openComandas(state.orders).get(Core.comandaKey(cmd)) : null);
   function openCmd(tipo, numero) {
     cmd = { tipo, numero, draft: [], obs: '' };
-    cmd.nome = currentCmd()?.nome || '';
+    const c = currentCmd();
+    cmd.nome = c?.nome || '';
+    cmd.origem = c?.origem && c.origem !== 'mesa' ? c.origem : 'balcao';
+    cmd.telefone = c?.pedidos.find(o => o.cliente?.telefone)?.cliente.telefone || '';
     $('cmdSearch').value = '';
     renderCmdMenu();
     renderCmdSide(true);
@@ -844,7 +906,8 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     if (!cmd) return;
     $('cmdCats').innerHTML = MENU.map(c => `<button type="button" data-cat="${c.id}" class="${c.id === cmdCat ? 'is-on' : ''}">${esc(c.name)}</button>`).join('');
     const q = Core.norm($('cmdSearch').value);
-    const items = q ? [...products.values()].filter(p => Core.norm(p.name).includes(q)) : (MENU.find(c => c.id === cmdCat)?.items || []);
+    if (!MENU.some(c => c.id === cmdCat)) cmdCat = MENU[0]?.id;
+    const items = q ? [...products.values()].filter(p => !p.oculto && Core.norm(p.name).includes(q)) : (MENU.find(c => c.id === cmdCat)?.items || []);
     $('cmdGrid').innerHTML = productTiles(items) || '<p class="muted small">Nenhum produto encontrado.</p>';
   }
   $('cmdSearch').addEventListener('input', renderCmdMenu);
@@ -865,8 +928,14 @@ document.addEventListener('gesturestart', e => e.preventDefault());
       $('cmdSide').innerHTML = `<div id="cmdActs"></div>
         <section class="cmd__new">
           <h3>Novo pedido</h3>
+          ${cmd.tipo === 'retirada' ? `<p class="muted small">🥡 Cliente vai buscar na loja (não é mesa).</p>
           <div class="grid2">
-            <label class="field">Nome do cliente (opcional)<input id="cmdNome" maxlength="60" value="${esc(cmd.nome)}" placeholder="Ex.: Ana"></label>
+            <label class="field">Pediu por
+              <select id="cmdOrigem"${currentCmd() ? ' disabled' : ''}>${['balcao', 'ifood', 'whatsapp'].map(k => `<option value="${k}"${cmd.origem === k ? ' selected' : ''}>${ORIGEM_LABEL[k]}</option>`).join('')}</select></label>
+            <label class="field">WhatsApp (opcional, para avisar que está pronto)<input id="cmdTel" data-mask="phone" value="${esc(cmd.telefone)}" placeholder="(81) 98790-8900"></label>
+          </div>` : ''}
+          <div class="grid2">
+            <label class="field">Nome do cliente${cmd.tipo === 'retirada' ? '' : ' (opcional)'}<input id="cmdNome" maxlength="60" value="${esc(cmd.nome)}" placeholder="Ex.: Ana"></label>
             <label class="field">Observação para a cozinha<input id="cmdObs" maxlength="300" value="${esc(cmd.obs)}" placeholder="Ex.: sem cebola na 1ª"></label>
           </div>
           <div id="cmdDraft"></div>
@@ -875,7 +944,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
       renderCmdDraft();
     }
     const c = currentCmd();
-    $('cmdTitle').innerHTML = `${cmd.tipo === 'mesa' ? '🍽' : '🧾'} ${esc(cmdLabel())} ${c ? `<small>Aberta há ${ago(c.abertaEm)} · ${c.pedidos.length} envio${c.pedidos.length > 1 ? 's' : ''} para a cozinha</small>` : '<small>Livre: adicione os itens e envie para a cozinha</small>'}`;
+    $('cmdTitle').innerHTML = `${{ mesa: '🍽', comanda: '🧾', retirada: '🥡' }[cmd.tipo] || '🍽'} ${esc(cmdLabel())}${cmd.tipo === 'retirada' ? ` · ${esc(ORIGEM_LABEL[cmd.origem])}` : ''} ${c ? `<small>Aberta há ${ago(c.abertaEm)} · ${c.pedidos.length} envio${c.pedidos.length > 1 ? 's' : ''} para a cozinha</small>` : '<small>Livre: adicione os itens e envie para a cozinha</small>'}`;
     $('cmdActs').innerHTML = c ? `<div class="cmd__acts">
         <button type="button" class="btn btn--sm btn--ghost" data-c="move">🔁 Trocar / juntar</button>
         <button type="button" class="btn btn--sm ${c.contaPedida ? 'btn--yellow' : 'btn--ghost'}" data-c="ask">🧾 ${c.contaPedida ? 'Conta pedida ✓' : 'Pedir a conta'}</button>
@@ -885,8 +954,8 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     $('cmdBill').innerHTML = c ? `<h3>Já na conta</h3>
       ${c.pedidos.map(o => `<div class="round round--${o.status}">
         <header><b>${esc(Core.shortCode(o.id))}</b><span class="muted">${hhmm(o.criadoEm)}</span><span class="tag">${Core.statusInfo(o.status).icon} ${Core.statusInfo(o.status).label}</span>
-          <span class="round__acts">${o.status === 'pronto' ? `<button type="button" class="btn btn--sm btn--yellow" data-c="served" data-o="${esc(o.id)}">✔ Servido</button>` : ''}<button type="button" class="link" data-c="cancelone" data-o="${esc(o.id)}" title="Cancelar só este envio">Cancelar</button></span></header>
-        <ul class="lines">${(o.itens || []).map(l => `<li><b>${l.qty}x ${esc(l.name)}</b><span>${brl(l.unit * l.qty)}</span>${lineChoices(l)}</li>`).join('')}</ul>
+          <span class="round__acts">${o.status === 'pronto' ? `<button type="button" class="btn btn--sm btn--yellow" data-c="served" data-o="${esc(o.id)}">✔ ${cmd.tipo === 'retirada' ? 'Entregue' : 'Servido'}</button>` : ''}${o.status === 'pronto' && o.cliente?.telefone ? `<button type="button" class="btn btn--sm btn--ghost" data-c="whats" data-o="${esc(o.id)}" title="Avisar no WhatsApp que está pronto">💬</button>` : ''}<button type="button" class="link" data-c="cancelone" data-o="${esc(o.id)}" title="Cancelar só este envio">Cancelar</button></span></header>
+        <ul class="lines">${(o.itens || []).map((l, i) => `<li><b>${l.qty}x ${esc(l.name)}</b><span>${brl(l.unit * l.qty)} <button type="button" class="link" data-c="rmline" data-o="${esc(o.id)}" data-i="${i}" title="Tirar este item da conta" aria-label="Tirar ${esc(l.name)}">✕</button></span>${lineChoices(l)}</li>`).join('')}</ul>
         ${o.obs ? `<p class="muted small">📝 ${esc(o.obs)}</p>` : ''}
       </div>`).join('')}
       <div class="total"><span>Total da conta</span><strong>${brl(c.total)}</strong></div>
@@ -910,6 +979,8 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   $('cmdSide').addEventListener('input', e => {
     if (e.target.id === 'cmdNome') cmd.nome = e.target.value;
     if (e.target.id === 'cmdObs') cmd.obs = e.target.value;
+    if (e.target.id === 'cmdTel') cmd.telefone = e.target.value;
+    if (e.target.id === 'cmdOrigem') { cmd.origem = e.target.value; $('cmdTitle').innerHTML = `🥡 ${esc(cmdLabel())} · ${esc(ORIGEM_LABEL[cmd.origem])}`; }
   });
   // Nome mudou numa mesa já aberta: vale para a conta toda
   $('cmdSide').addEventListener('change', e => {
@@ -937,6 +1008,8 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     if (a === 'move') return openMove(c);
     if (a === 'bill') return openBill(c.key);
     if (a === 'served') { const o = c.pedidos.find(x => x.id === b.dataset.o); if (o) setStatus(o, 'concluido'); return; }
+    if (a === 'whats') { const o = c.pedidos.find(x => x.id === b.dataset.o); if (o) notify(o, 'pronto'); return; }
+    if (a === 'rmline') return removeLine(c.pedidos.find(x => x.id === b.dataset.o), +b.dataset.i);
     if (a === 'cancelone') {
       const o = c.pedidos.find(x => x.id === b.dataset.o);
       if (!o) return;
@@ -951,13 +1024,34 @@ document.addEventListener('gesturestart', e => e.preventDefault());
       return Promise.all(c.pedidos.map(o => setStatus(o, 'cancelado', extra))).then(() => { toast(`${cmdLabel()} cancelada`); cmd.draft = []; closeCmd(); });
     }
   });
+  // Tira um item de um envio que já foi para a cozinha (o estoque volta). Último item = cancela o envio.
+  async function removeLine(o, i) {
+    const l = o?.itens?.[i];
+    if (!l) return;
+    if (o.itens.length === 1) {
+      const motivo = prompt(`${l.qty}x ${l.name} é o único item do envio ${Core.shortCode(o.id)}. Cancelar o envio? Escreva o motivo:`);
+      if (motivo === null) return;
+      return setStatus(o, 'cancelado', { cancelMotivo: motivo.trim().slice(0, 140), 'comanda.aberta': false });
+    }
+    if (!confirm(`Tirar ${l.qty}x ${l.name} (${brl(l.unit * l.qty)}) da conta?`)) return;
+    const itens = o.itens.filter((_, k) => k !== i);
+    await safe('Erro ao tirar o item', async () => {
+      await DB.updateOrder(o.id, { itens, ...Core.totalsOf({ ...o, itens }) });
+      const est = state.cfg.estoque?.itens || {};
+      if (o.estoqueBaixado && typeof est[l.id]?.qtd === 'number') await DB.addStock({ [l.id]: l.qty });
+      toast(`${l.qty}x ${l.name} tirado da conta`);
+    });
+  }
   async function sendCmd() {
     if (!cmd.draft.length) return toast('Adicione itens do cardápio', true);
     const nome = cmd.nome.trim();
+    const ret = cmd.tipo === 'retirada';
+    if (ret && !nome) { $('cmdNome')?.focus(); return toast('Coloque o nome do cliente da retirada', true); }
+    if (ret && cmd.telefone && !BaldiniMask.validPhone(cmd.telefone)) return toast('WhatsApp inválido: use DDD + número', true);
     const em = Date.now();
     const o = Core.sanitizeOrder({
-      id: Core.newOrderId(), origem: 'mesa', status: 'novo', itens: cmd.draft,
-      cliente: { nome }, entrega: { tipo: 'Comer no local' }, pagamento: { forma: 'A definir', pago: false },
+      id: Core.newOrderId(), origem: ret ? cmd.origem : 'mesa', status: 'novo', itens: cmd.draft,
+      cliente: { nome, telefone: ret ? cmd.telefone.trim() : '' }, entrega: { tipo: ret ? 'Retirada na Loja (Av. Rosita Freire, 460)' : 'Comer no local' }, pagamento: { forma: 'A definir', pago: false },
       obs: cmd.obs.trim(), comanda: { tipo: cmd.tipo, numero: cmd.numero, aberta: true, nome, contaPedida: !!currentCmd()?.contaPedida },
       criadoEm: em, historico: [{ status: 'novo', em }]
     });
@@ -1026,10 +1120,10 @@ document.addEventListener('gesturestart', e => e.preventDefault());
         <div class="total"><span>Total a receber</span><strong id="billTotal">${brl(total)}</strong></div>
       </div>
       <h4>Como pagou?</h4>
-      <div class="paygrid">${['Pix', 'Débito', 'Crédito', 'Dinheiro'].map(m => `<button type="button" class="paybtn${payCtx.metodo === m ? ' is-on' : ''}" data-x="metodo" data-p="${m}">${{ Pix: '⚡', 'Débito': '💳', 'Crédito': '💳', Dinheiro: '💵' }[m]} ${m}</button>`).join('')}</div>
+      <div class="paygrid">${['Pix', 'Débito', 'Crédito', 'Dinheiro', ...(c.origem === 'ifood' ? ['iFood'] : [])].map(m => `<button type="button" class="paybtn${payCtx.metodo === m ? ' is-on' : ''}" data-x="metodo" data-p="${m}">${{ Pix: '⚡', 'Débito': '💳', 'Crédito': '💳', Dinheiro: '💵', iFood: '🛵' }[m]} ${m === 'iFood' ? 'Pago no iFood' : m}</button>`).join('')}</div>
       ${payCtx.metodo === 'Dinheiro' ? `<div class="grid2"><label class="field">Valor recebido<input data-x="recebido" data-mask="money" value="${payCtx.recebido ? money(payCtx.recebido) : ''}" placeholder="R$ 0,00"></label>
         <div class="total"><span>Troco</span><strong id="billTroco">${brl(troco)}</strong></div></div>` : ''}
-      ${payCtx.metodo && payCtx.metodo !== 'Dinheiro' ? `<p class="muted small">Na maquininha: digite <b class="big">${brl(total)}</b></p>` : ''}
+      ${payCtx.metodo && !['Dinheiro', 'iFood'].includes(payCtx.metodo) ? `<p class="muted small">Na maquininha: digite <b class="big">${brl(total)}</b></p>` : ''}
       <footer class="modal__foot"><button type="button" class="btn btn--ghost" data-x="close">Voltar</button>
         <button type="button" class="btn btn--yellow" data-x="confirm"${payCtx.metodo ? '' : ' disabled'}>✔ Receber ${brl(total)}</button></footer>`;
   }
@@ -1220,16 +1314,104 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     safe('Erro no estoque', () => DB.setStockItem(id, data));
   });
 
+  // ---------- Cardápio: preços, produtos novos e escondidos ----------
+  let menuDirty = false;
+  const baseProduct = id => { for (const c of BASE_MENU) for (const p of c.items) if (p.id === id) return p; return null; };
+  // Opções que definem o preço (tamanho, sabor, burger do combo): grupos de escolha obrigatória
+  const priceGroups = p => (p.groups || []).filter(g => g.min > 0);
+  function saveMenu(mudar, aviso) {
+    const aj = JSON.parse(JSON.stringify(state.cfg.cardapio || {}));
+    aj.precos = aj.precos || {}; aj.opcoes = aj.opcoes || {}; aj.ocultos = aj.ocultos || []; aj.novos = aj.novos || [];
+    mudar(aj);
+    // Guarda já: duas mudanças seguidas não se atropelam enquanto o banco responde
+    state.cfg.cardapio = aj;
+    return safe('Erro ao salvar o cardápio', async () => {
+      await DB.setConfig('cardapio', { dados: JSON.stringify(aj), atualizadoEm: Date.now(), por: state.user?.nome || state.user?.email || '' });
+      if (aviso) toast(aviso);
+    });
+  }
+  function renderMenuEdit() {
+    if (!Cardapio) { $('menuEdit').innerHTML = '<p class="error">O site de pedidos não respondeu: não dá para editar o cardápio agora. Recarregue a página.</p>'; return; }
+    if ($('menuEdit').contains(document.activeElement) && document.activeElement.tagName === 'INPUT') { menuDirty = true; return; }
+    menuDirty = false;
+    $('newProdCat').innerHTML = menuFull.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+    const q = Core.norm($('menuSearch').value);
+    $('menuEdit').innerHTML = menuFull.map(cat => {
+      const rows = cat.items.filter(p => !q || Core.norm(p.name).includes(q));
+      if (!rows.length) return '';
+      return `<div class="card stock-cat"><h3>${esc(cat.name)}</h3>${rows.map(p => {
+        const base = baseProduct(p.id);
+        const opts = priceGroups(p);
+        const usaOpcoes = !p.price && opts.length;
+        const mudou = base && base.price !== p.price;
+        return `<div class="mrow${p.oculto ? ' is-off' : ''}" data-mid="${esc(p.id)}">
+          <span class="mrow__name">${p.novo ? `<input data-k="nome" value="${esc(p.name)}" maxlength="80" aria-label="Nome do produto">` : esc(p.name)}
+            <small>${p.novo ? '<span class="tag tag--ok">novo</span> ' : ''}${p.oculto ? '<span class="tag">escondido</span> ' : ''}${mudou ? `<span class="muted">antes ${brl(base.price)}</span>` : ''}</small></span>
+          ${usaOpcoes ? '<span class="muted small">preço nas opções ↓</span>' : `<label class="mrow__price">R$<input data-k="preco" data-mask="money" value="${money(p.price)}" aria-label="Preço de ${esc(p.name)}"></label>`}
+          <label class="check mrow__on"><input type="checkbox" data-k="on"${p.oculto ? '' : ' checked'}> No cardápio</label>
+          ${p.novo ? '<button type="button" class="link" data-k="del" title="Apagar produto novo">Apagar</button>' : '<span></span>'}
+          ${opts.length ? `<details class="mrow__opts"${usaOpcoes ? '' : ''}><summary>Preços das opções</summary>${opts.map((g, gi) => `<p class="muted small">${esc(g.name)}</p>${g.options.map(o => `<label class="crow"><span>${esc(o.name)}</span><input data-k="opt" data-opt="${esc(o.name)}" data-mask="money" value="${money(o.price)}"></label>`).join('')}`).join('')}</details>` : ''}
+        </div>`;
+      }).join('')}</div>`;
+    }).join('') || '<p class="muted small">Nenhum produto encontrado.</p>';
+  }
+  $('menuSearch').addEventListener('input', renderMenuEdit);
+  $('menuEdit').addEventListener('focusout', () => setTimeout(() => { if (menuDirty) renderMenuEdit(); }, 0));
+  $('menuEdit').addEventListener('change', e => {
+    const id = e.target.closest('[data-mid]')?.dataset.mid;
+    const k = e.target.dataset.k;
+    const p = id && products.get(id);
+    if (!p) return;
+    const base = baseProduct(id);
+    if (k === 'preco') {
+      const v = Core.round2(num(e.target.value));
+      return saveMenu(aj => {
+        if (p.novo) { const n = aj.novos.find(x => x.id === id); if (n) n.price = v; }
+        else if (base && base.price === v) delete aj.precos[id]; else aj.precos[id] = v;
+      }, `💲 ${p.name}: ${brl(v)}`);
+    }
+    if (k === 'opt') {
+      const v = Core.round2(num(e.target.value)), nome = e.target.dataset.opt, key = id + '::' + nome;
+      const orig = (base?.groups || []).flatMap(g => g.options).find(o => o.name === nome);
+      return saveMenu(aj => { if (orig && orig.price === v) delete aj.opcoes[key]; else aj.opcoes[key] = v; }, `💲 ${p.name} · ${nome}: ${brl(v)}`);
+    }
+    if (k === 'on') {
+      const on = e.target.checked;
+      return saveMenu(aj => { aj.ocultos = aj.ocultos.filter(x => x !== id); if (!on) aj.ocultos.push(id); }, on ? `✅ ${p.name} voltou ao cardápio` : `🙈 ${p.name} escondido do cardápio`);
+    }
+    if (k === 'nome') {
+      const nome = e.target.value.trim().slice(0, 80);
+      if (!nome) return toast('O nome não pode ficar vazio', true);
+      return saveMenu(aj => { const n = aj.novos.find(x => x.id === id); if (n) n.name = nome; }, 'Nome salvo ✅');
+    }
+  });
+  $('menuEdit').addEventListener('click', e => {
+    if (e.target.dataset.k !== 'del') return;
+    const id = e.target.closest('[data-mid]')?.dataset.mid;
+    const p = products.get(id);
+    if (p && confirm(`Apagar ${p.name} do cardápio?`)) saveMenu(aj => { aj.novos = aj.novos.filter(x => x.id !== id); aj.ocultos = aj.ocultos.filter(x => x !== id); }, `${p.name} apagado`);
+  });
+  $('newProdForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const f = e.target.elements;
+    const nome = f.nome.value.trim(), preco = Core.round2(num(f.preco.value));
+    if (!nome || !(preco > 0)) return toast('Preencha o nome e o preço', true);
+    const id = 'novo-' + Core.norm(nome).replace(/ /g, '-').slice(0, 40) + '-' + Date.now().toString(36);
+    saveMenu(aj => { aj.novos.push({ id, cat: f.cat.value, name: nome, desc: f.desc.value.trim().slice(0, 300), price: preco }); }, `✅ ${nome} adicionado ao cardápio`)
+      .then(() => { const cat = f.cat.value; e.target.reset(); f.cat.value = cat; });
+  });
+
   // ---------- Equipe (dono) ----------
   function renderTeam() {
     const me = state.user?.uid;
+    const dono = state.cargo === 'dono';
     const ordem = { dono: 0, gerente: 1, funcionario: 2 };
     const list = [...state.team].sort((a, b) => ordem[Core.cargoOf(a)] - ordem[Core.cargoOf(b)] || String(a.nome || '').localeCompare(b.nome || ''));
     $('teamList').innerHTML = list.length ? list.map(m => {
       const c = Core.cargoOf(m), self = m.uid === me;
       return `<div class="drow team-row" data-uid="${esc(m.uid)}"><span><b>${esc(m.nome || 'Sem nome')}</b>${self ? ' <span class="tag">você</span>' : ''}<small class="muted">${m.usuario ? 'usuário: ' + esc(m.usuario) : esc(m.email || m.uid)}</small></span>
-        <span class="team-row__acts"><select data-t="cargo" aria-label="Cargo de ${esc(m.nome || '')}"${self ? ' disabled title="Você não pode mudar o próprio cargo"' : ''}>${Object.entries(Core.CARGOS).map(([k, v]) => `<option value="${k}"${k === c ? ' selected' : ''}>${v.icon} ${v.label}</option>`).join('')}</select>
-        ${self ? '' : '<button type="button" class="btn btn--sm btn--danger" data-t="rm">Tirar acesso</button>'}</span></div>`;
+        <span class="team-row__acts">${dono ? `<select data-t="cargo" aria-label="Cargo de ${esc(m.nome || '')}"${self ? ' disabled title="Você não pode mudar o próprio cargo"' : ''}>${Object.entries(Core.CARGOS).map(([k, v]) => `<option value="${k}"${k === c ? ' selected' : ''}>${v.icon} ${v.label}</option>`).join('')}</select>` : `<span class="tag">${Core.CARGOS[c].icon} ${Core.CARGOS[c].label}</span>`}
+        ${self || !(dono || c === 'funcionario') ? '' : '<button type="button" class="btn btn--sm btn--danger" data-t="rm">Tirar acesso</button>'}</span></div>`;
     }).join('') : '<p class="muted small">Ninguém cadastrado ainda.</p>';
   }
   $('teamList').addEventListener('change', e => {
@@ -1249,6 +1431,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     if (!nome || !usuario) return toast('Preencha nome e usuário', true);
     if (!usuario.includes('@') && !/^[a-z0-9._-]{2,40}$/.test(usuario)) return toast('Usuário: só letras sem acento, números, ponto ou traço (ex.: maria.silva)', true);
     if (senha.length < 6) return toast('A senha precisa ter pelo menos 6 caracteres', true);
+    if (state.cargo !== 'dono' && cargo !== 'funcionario') return toast('Gerente só cria acesso de funcionário', true);
     const btn = e.target.querySelector('[type=submit]');
     btn.disabled = true;
     try {
@@ -1274,6 +1457,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     const uid = f.uid.value.trim(), nome = f.nome.value.trim();
     if (!uid || !nome) return toast('Preencha o código e o nome', true);
     if (/[/\s]/.test(uid)) return toast('Código inválido: copie exatamente o que aparece na tela da pessoa', true);
+    if (state.cargo !== 'dono' && f.cargo.value !== 'funcionario') return toast('Gerente só libera funcionário', true);
     safe('Erro ao liberar', async () => {
       await DB.setMember(uid, { nome, cargo: f.cargo.value, liberadoEm: Date.now() });
       e.target.reset();

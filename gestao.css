@@ -446,3 +446,38 @@ button.kpi:hover { border-color: var(--yellow); }
 }
 
 .team-forms { display: grid; gap: 16px; align-content: start; }
+
+/* ===== Retirada, contas fechadas ===== */
+.cmd-new { margin: 0; }
+.tbl--retirada { border-style: solid; border-left-width: 6px; }
+.closed { margin-top: 14px; }
+.closed summary { cursor: pointer; font-weight: 700; }
+.closed summary small { font-weight: 500; }
+.closed #closedList { margin-top: 8px; }
+
+/* ===== Cardápio ===== */
+.menu-search { max-width: 360px; margin-bottom: 12px; }
+.menu-help { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.mrow { display: grid; grid-template-columns: 1fr auto auto 60px; align-items: center; gap: 8px 14px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.mrow:last-child { border-bottom: 0; }
+.mrow.is-off > .mrow__name { opacity: .55; }
+.mrow__name { font-weight: 600; min-width: 0; }
+.mrow__name small { display: block; font-weight: 500; font-size: 12px; margin-top: 2px; }
+.mrow__name input, .mrow__price input { border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 8px; padding: 6px 8px; font: 600 14px Inter, sans-serif; }
+.mrow__name input { width: 100%; }
+.mrow__price { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.mrow__price input { width: 104px; text-align: right; }
+.mrow__on { margin: 0; font-size: 13px; white-space: nowrap; }
+.mrow__opts { grid-column: 1 / -1; background: var(--panel-2); border-radius: 10px; padding: 8px 12px; }
+.mrow__opts summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--yellow); }
+.mrow__opts p { margin: 10px 0 2px; }
+.mrow__opts .crow input { width: 104px; }
+@media (max-width: 640px) {
+  .mrow { grid-template-columns: 1fr auto; }
+  .mrow__on { grid-column: 1; }
+  .mrow > .link, .mrow > span:empty { justify-self: end; }
+  .mrow__price input, .mrow__opts .crow input { font-size: 16px; }
+  .menu-search { max-width: none; }
+  .cmd-top .cmd-new { width: 100%; }
+  .cmd-top .cmd-new .btn { flex: 1; }
+}

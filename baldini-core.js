@@ -114,7 +114,7 @@
     if (o.entregador) clean.entregador = o.entregador;
     if (o.comanda) {
       clean.comanda = {
-        tipo: o.comanda.tipo === 'comanda' ? 'comanda' : 'mesa', numero: Math.max(1, Math.floor(Number(o.comanda.numero) || 1)),
+        tipo: ['comanda', 'retirada'].includes(o.comanda.tipo) ? o.comanda.tipo : 'mesa', numero: Math.max(1, Math.floor(Number(o.comanda.numero) || 1)),
         aberta: o.comanda.aberta !== false, nome: clip(o.comanda.nome, 60), contaPedida: !!o.comanda.contaPedida
       };
     }
@@ -354,8 +354,8 @@
   // Ações: fecharConta = receber o pagamento (fechar a conta da mesa e marcar pedido como pago)
   const CARGOS = {
     funcionario: { label: 'Funcionário', icon: '🧑‍🍳', abas: ['comandas', 'pedidos'], acoes: ['fecharConta'] },
-    gerente: { label: 'Gerente', icon: '🧑‍💼', abas: ['caixa', 'estoque', 'comandas', 'pedidos', 'novo'], acoes: ['fecharConta'] },
-    dono: { label: 'Dono', icon: '👑', abas: ['pedidos', 'comandas', 'caixa', 'estoque', 'novo', 'entregas', 'lucro', 'nf', 'bot', 'equipe', 'config', 'sistema'], acoes: ['fecharConta'] }
+    gerente: { label: 'Gerente', icon: '🧑‍💼', abas: ['caixa', 'estoque', 'comandas', 'pedidos', 'novo', 'cardapio', 'equipe'], acoes: ['fecharConta'] },
+    dono: { label: 'Dono', icon: '👑', abas: ['pedidos', 'comandas', 'caixa', 'estoque', 'novo', 'cardapio', 'entregas', 'lucro', 'nf', 'bot', 'equipe', 'config', 'sistema'], acoes: ['fecharConta'] }
   };
   // Sem cargo no cadastro = dono (quem já estava na equipe antes dos cargos continua vendo tudo)
   const cargoOf = m => (CARGOS[m?.cargo] ? m.cargo : 'dono');
@@ -364,14 +364,17 @@
 
   // ---------- Mesas e comandas ----------
   // Cada envio para a cozinha é um pedido; a conta da mesa é a soma dos pedidos com a comanda aberta.
-  const comandaKey = c => `${c?.tipo === 'comanda' ? 'comanda' : 'mesa'}-${Number(c?.numero) || 0}`;
-  const comandaLabel = c => `${c?.tipo === 'comanda' ? 'Comanda' : 'Mesa'} ${Number(c?.numero) || 0}`;
+  // Tipos: mesa, comanda (avulsa) e retirada (cliente busca na loja: balcão, iFood ou telefone)
+  const TIPO_LABEL = { mesa: 'Mesa', comanda: 'Comanda', retirada: 'Retirada' };
+  const tipoOf = c => (TIPO_LABEL[c?.tipo] ? c.tipo : 'mesa');
+  const comandaKey = c => `${tipoOf(c)}-${Number(c?.numero) || 0}`;
+  const comandaLabel = c => `${TIPO_LABEL[tipoOf(c)]} ${Number(c?.numero) || 0}`;
   function openComandas(orders) {
     const map = new Map();
     (orders || []).forEach(o => {
       if (!o.comanda?.aberta || o.status === 'cancelado') return;
       const k = comandaKey(o.comanda);
-      const c = map.get(k) || { key: k, tipo: o.comanda.tipo, numero: o.comanda.numero, nome: '', pedidos: [], total: 0, itens: 0, abertaEm: Infinity, contaPedida: false, pronto: false, cozinha: false };
+      const c = map.get(k) || { key: k, tipo: tipoOf(o.comanda), numero: o.comanda.numero, nome: '', origem: o.origem, pedidos: [], total: 0, itens: 0, abertaEm: Infinity, contaPedida: false, pronto: false, cozinha: false };
       c.pedidos.push(o);
       c.total = round2(c.total + (Number(o.total) || 0));
       c.itens += (o.itens || []).reduce((s, l) => s + (Number(l.qty) || 0), 0);
@@ -385,9 +388,22 @@
     map.forEach(c => c.pedidos.sort((a, b) => a.criadoEm - b.criadoEm));
     return map;
   }
-  // Próximo número livre de comanda avulsa
-  function nextComanda(orders) {
-    const used = new Set([...openComandas(orders).values()].filter(c => c.tipo === 'comanda').map(c => c.numero));
+  // Contas já fechadas (para reabrir): os pedidos pagos juntos da mesma mesa formam uma conta
+  function closedComandas(orders, since = 0) {
+    const map = new Map();
+    (orders || []).forEach(o => {
+      if (!o.comanda || o.comanda.aberta || o.status === 'cancelado' || !o.pagamento?.pago || paidAt(o) < since) return;
+      const k = `${comandaKey(o.comanda)}@${paidAt(o)}`;
+      const c = map.get(k) || { key: k, tipo: tipoOf(o.comanda), numero: o.comanda.numero, nome: o.comanda.nome || '', metodo: o.pagamento.metodo || '', fechadaEm: paidAt(o), pedidos: [], total: 0 };
+      c.pedidos.push(o);
+      c.total = round2(c.total + (Number(o.total) || 0));
+      map.set(k, c);
+    });
+    return [...map.values()].sort((a, b) => b.fechadaEm - a.fechadaEm);
+  }
+  // Próximo número livre (comanda avulsa ou retirada)
+  function nextComanda(orders, tipo = 'comanda') {
+    const used = new Set([...openComandas(orders).values()].filter(c => c.tipo === tipo).map(c => c.numero));
     let n = 1;
     while (used.has(n)) n++;
     return n;
@@ -423,5 +439,5 @@
     return { pagos: pagos.sort((a, b) => paidAt(b) - paidAt(a)), porForma, qtdForma, recebido, ticketMedio: pagos.length ? round2(recebido / pagos.length) : 0 };
   }
 
-  return { CARGOS, cargoOf, canAccess, canDo, comandaKey, comandaLabel, openComandas, nextComanda, stockStatus, stockNeeds, PAY_ORDER, paidAt, cashReport, brl, round2, norm, STATUS, STATUS_IDS, statusInfo, nextStatus, isDelivery, countsAsSale, DEFAULT_AUTO, enteredAt, autoStep, newOrderId, shortCode, unitPrice, missingGroup, subtotalOf, totalsOf, sanitizeOrder, DEFAULT_TAXAS, payKey, feeOf, costOf, profitReport, hourIn, isOpen, MSG, fillMsg, whatsLink, findProducts, botReply, infinitepayPayload, nfcePayload, validCpf, splitAddress, shouldAutoEmit, formaNf, NF_STATUS_OK };
+  return { CARGOS, cargoOf, canAccess, canDo, TIPO_LABEL, comandaKey, comandaLabel, openComandas, closedComandas, nextComanda, stockStatus, stockNeeds, PAY_ORDER, paidAt, cashReport, brl, round2, norm, STATUS, STATUS_IDS, statusInfo, nextStatus, isDelivery, countsAsSale, DEFAULT_AUTO, enteredAt, autoStep, newOrderId, shortCode, unitPrice, missingGroup, subtotalOf, totalsOf, sanitizeOrder, DEFAULT_TAXAS, payKey, feeOf, costOf, profitReport, hourIn, isOpen, MSG, fillMsg, whatsLink, findProducts, botReply, infinitepayPayload, nfcePayload, validCpf, splitAddress, shouldAutoEmit, formaNf, NF_STATUS_OK };
 });
