@@ -13,7 +13,7 @@ Ligado ao site de pedidos **https://galdinoheitor15-star.github.io/baldini-burgu
 - Pedidos aparecem **ao vivo** enquanto o cliente monta a sacola ("Montando agora") e viram "Novo" quando ele envia.
 - Quadro de pedidos: Novo → Em preparo → Pronto → Saiu p/ entrega → Concluído, com som de aviso, comanda para imprimir e botão "Avisar cliente" no WhatsApp.
 - Lançar pedido do balcão/telefone com o mesmo cardápio do site.
-- Lucro: faturamento, custo de cada produto, taxas da maquininha, despesas e lucro do dia, da semana e do mês.
+- Caixa: quanto entrou no dia, na semana e no mês, com gráfico por forma de pagamento (Pix, crédito, débito, dinheiro). A antiga aba Lucro está desligada (para religar, ponha "lucro" na lista do dono em `CARGOS`, no `baldini-core.js`).
 - Bot "🍔 Ajuda" no site: responde horário, endereço, pagamento e pontos, acha o lanche pelo nome e mostra o status do pedido.
 - Testes automáticos: abra **/tests/index.html**.
 
@@ -24,7 +24,7 @@ No modo demonstração os dados ficam só no navegador (o site e a gestão se en
 |---|---|
 | 🧑‍🍳 **Funcionário** | Mesas, comandas e **retiradas** (abrir, lançar, trocar/juntar, cancelar, tirar item, pedir, **fechar e reabrir a conta**) e Pedidos |
 | 🧑‍💼 **Gerente** | Caixa (fechar conta + gráfico de pizza por Pix, crédito, débito e dinheiro), Estoque, **Cardápio** (preços e produtos novos), Equipe (cria e tira o acesso de **funcionários**), Mesas e comandas, Pedidos e Lançar pedido |
-| 👑 **Dono** | Tudo, incluindo Lucro, Nota fiscal, Equipe e Configurações |
+| 👑 **Dono** | Tudo, incluindo Nota fiscal, Equipe e Configurações |
 
 - Na aba **👥 Equipe** o dono cria o acesso com **usuário e senha** (a pessoa entra em "Entrar com usuário e senha"), ou libera quem entrou com Google colando o código que aparece na tela da pessoa.
 - Para criar acesso com usuário e senha, o login por **E-mail/senha** precisa estar ativo no Firebase (Authentication → Método de login).

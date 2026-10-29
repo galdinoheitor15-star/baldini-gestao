@@ -301,7 +301,8 @@
     ok(!Core.canAccess('funcionario', 'caixa') && !Core.canAccess('funcionario', 'estoque') && !Core.canAccess('funcionario', 'lucro'));
     ok(Core.canAccess('gerente', 'caixa') && Core.canAccess('gerente', 'estoque'));
     ok(!Core.canAccess('gerente', 'lucro') && !Core.canAccess('gerente', 'config') && !Core.canAccess('gerente', 'nf'));
-    ['pedidos', 'comandas', 'caixa', 'estoque', 'lucro', 'nf', 'config', 'equipe', 'sistema'].forEach(a => ok(Core.canAccess('dono', a), 'dono sem ' + a));
+    ['pedidos', 'comandas', 'caixa', 'estoque', 'nf', 'config', 'equipe', 'sistema'].forEach(a => ok(Core.canAccess('dono', a), 'dono sem ' + a));
+    ok(!Core.canAccess('dono', 'lucro'), 'aba Lucro foi tirada: o Caixa mostra o faturamento');
     ok(!Core.canAccess('qualquer', 'caixa'), 'cargo desconhecido não vê o caixa');
     ['funcionario', 'gerente', 'dono'].forEach(c => ok(Core.canDo(c, 'fecharConta'), c + ' não fecha conta'));
     ok(!Core.canDo('qualquer', 'fecharConta'));

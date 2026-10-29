@@ -355,7 +355,7 @@
   const CARGOS = {
     funcionario: { label: 'Funcionário', icon: '🧑‍🍳', abas: ['comandas', 'pedidos'], acoes: ['fecharConta'] },
     gerente: { label: 'Gerente', icon: '🧑‍💼', abas: ['caixa', 'estoque', 'comandas', 'pedidos', 'novo', 'cardapio', 'equipe'], acoes: ['fecharConta'] },
-    dono: { label: 'Dono', icon: '👑', abas: ['pedidos', 'comandas', 'caixa', 'estoque', 'novo', 'cardapio', 'entregas', 'lucro', 'nf', 'bot', 'equipe', 'config', 'sistema'], acoes: ['fecharConta'] }
+    dono: { label: 'Dono', icon: '👑', abas: ['pedidos', 'comandas', 'caixa', 'estoque', 'novo', 'cardapio', 'entregas', 'nf', 'bot', 'equipe', 'config', 'sistema'], acoes: ['fecharConta'] }
   };
   // Sem cargo no cadastro = dono (quem já estava na equipe antes dos cargos continua vendo tudo)
   const cargoOf = m => (CARGOS[m?.cargo] ? m.cargo : 'dono');
