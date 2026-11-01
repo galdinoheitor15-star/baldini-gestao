@@ -174,7 +174,7 @@
         <h2>Adicionar produto</h2>
         <div class="grid2">
           <label class="field">Categoria<select name="cat" id="newProdCat"></select></label>
-          <label class="field">Preço<input name="preco" data-mask="money" placeholder="R$ 0,00" required></label>
+          <label class="field">Preço<input maxlength="16" name="preco" data-mask="money" placeholder="R$ 0,00" required></label>
         </div>
         <label class="field">Nome<input name="nome" maxlength="80" required placeholder="Ex.: Bomba Picanha"></label>
         <label class="field">Descrição (opcional)<textarea name="desc" rows="2" maxlength="300" placeholder="Ex.: Blend 150g, queijo, picanha fatiada..."></textarea></label>
@@ -214,20 +214,20 @@
             <select name="entrega"><option>Delivery</option><option>Retirada na Loja (Av. Rosita Freire, 460)</option><option>Retirada no Trailer (Av. Murilo Silva)</option><option>Comer no local</option></select>
           </label>
           <label class="field">Nome<input name="nome" maxlength="80"></label>
-          <label class="field">WhatsApp<input name="telefone" data-mask="phone" placeholder="(81) 98790-8900"></label>
-          <label class="field">CPF na nota (opcional)<input name="cpf" data-mask="cpf" placeholder="000.000.000-00"></label>
+          <label class="field">WhatsApp<input maxlength="15" name="telefone" data-mask="phone" placeholder="(81) 98790-8900"></label>
+          <label class="field">CPF na nota (opcional)<input maxlength="14" name="cpf" data-mask="cpf" placeholder="000.000.000-00"></label>
         </div>
         <div class="grid2" id="posAddr">
           <label class="field">Endereço<input name="endereco" maxlength="160"></label>
           <label class="field">Bairro<input name="bairro" maxlength="80"></label>
-          <label class="field">Taxa de entrega (R$)<input name="taxa" data-mask="money" placeholder="R$ 0,00"></label>
+          <label class="field">Taxa de entrega (R$)<input maxlength="16" name="taxa" data-mask="money" placeholder="R$ 0,00"></label>
           <label class="field">Referência<input name="referencia" maxlength="160"></label>
         </div>
         <div class="grid2">
           <label class="field">Pagamento
             <select name="pagamento"><option>Pix</option><option>Débito</option><option>Crédito</option><option>Dinheiro</option><option>Online</option></select>
           </label>
-          <label class="field">Desconto (R$)<input name="desconto" data-mask="money" placeholder="R$ 0,00"></label>
+          <label class="field">Desconto (R$)<input maxlength="16" name="desconto" data-mask="money" placeholder="R$ 0,00"></label>
         </div>
         <label class="field">Observações<textarea name="obs" rows="2" maxlength="300"></textarea></label>
         <label class="check"><input type="checkbox" name="pago"> Já está pago</label>
@@ -271,7 +271,7 @@
         <h2>Despesas</h2>
         <form class="inline-form" id="expenseForm">
           <input name="desc" placeholder="Ex.: gás, aluguel, pão" maxlength="80" required aria-label="Descrição">
-          <input name="valor" data-mask="money" placeholder="R$ 0,00" required aria-label="Valor">
+          <input maxlength="16" name="valor" data-mask="money" placeholder="R$ 0,00" required aria-label="Valor">
           <input name="data" type="date" required aria-label="Data">
           <button class="btn btn--sm btn--yellow" type="submit">Adicionar</button>
         </form>
@@ -354,7 +354,7 @@
   <section class="view" id="view-config" hidden>
     <form class="card config" id="configForm">
       <h2>Salão</h2>
-      <label class="field">Quantidade de mesas<input name="mesas" data-mask="int" data-max="3" placeholder="12"></label>
+      <label class="field">Quantidade de mesas<input maxlength="3" name="mesas" data-mask="int" data-max="3" placeholder="12"></label>
 
       <h2>Maquininha InfinitePay (laranjinha)</h2>
       <label class="field">InfiniteTag (sem o $)<input name="infinitepayHandle" placeholder="baldiniburguer" maxlength="60"></label>
@@ -363,12 +363,12 @@
 
       <h2>Taxas por forma de pagamento (%)</h2>
       <div class="grid3" id="feeFields"></div>
-      <label class="field">Custo do motoboy por entrega (R$)<input name="custoEntrega" data-mask="money" placeholder="R$ 0,00"></label>
+      <label class="field">Custo do motoboy por entrega (R$)<input maxlength="16" name="custoEntrega" data-mask="money" placeholder="R$ 0,00"></label>
 
       <h2>Nota fiscal</h2>
       <div class="grid3">
-        <label class="field">CNPJ<input name="cnpj" data-mask="cnpj" placeholder="46.723.226/0001-11"></label>
-        <label class="field">NCM padrão<input name="ncm" data-mask="ncm" placeholder="2106.90.90"></label>
+        <label class="field">CNPJ<input maxlength="18" name="cnpj" data-mask="cnpj" placeholder="46.723.226/0001-11"></label>
+        <label class="field">NCM padrão<input maxlength="10" name="ncm" data-mask="ncm" placeholder="2106.90.90"></label>
         <label class="field">Enquadramento (CSOSN do Simples)<select name="csosn"><option value="102">102 - Simples sem crédito (mais comum)</option><option value="101">101 - Simples com crédito</option><option value="103">103 - Isenção por faixa de receita</option><option value="300">300 - Imune</option><option value="400">400 - Não tributada</option><option value="500">500 - ICMS já cobrado (substituição)</option><option value="900">900 - Outros</option></select></label>
       </div>
       <label class="check"><input type="checkbox" name="nfAuto"> Emitir a nota fiscal sozinha (com produtos, pagamento, endereço e CPF do cliente)</label>
@@ -386,10 +386,10 @@
       <label class="check"><input type="checkbox" name="autoAtivo"> Avançar o status dos pedidos automaticamente</label>
       <p class="muted small">Minutos em cada etapa antes de passar para a próxima. Dá para mudar à mão a qualquer momento: o tempo recomeça dali. Pedidos do iFood seguem o próprio iFood.</p>
       <div class="grid3 grid4">
-        <label class="field">🔔 Novo → Em preparo<input name="autoNovo" data-mask="int" data-max="3" placeholder="1"></label>
-        <label class="field">🔥 Em preparo → Pronto<input name="autoPreparo" data-mask="int" data-max="3" placeholder="15"></label>
-        <label class="field">✅ Pronto → Saiu p/ entrega (ou Concluído na retirada)<input name="autoPronto" data-mask="int" data-max="3" placeholder="3"></label>
-        <label class="field">🛵 Saiu p/ entrega → Concluído<input name="autoEntrega" data-mask="int" data-max="3" placeholder="25"></label>
+        <label class="field">🔔 Novo → Em preparo<input maxlength="3" name="autoNovo" data-mask="int" data-max="3" placeholder="1"></label>
+        <label class="field">🔥 Em preparo → Pronto<input maxlength="3" name="autoPreparo" data-mask="int" data-max="3" placeholder="15"></label>
+        <label class="field">✅ Pronto → Saiu p/ entrega (ou Concluído na retirada)<input maxlength="3" name="autoPronto" data-mask="int" data-max="3" placeholder="3"></label>
+        <label class="field">🛵 Saiu p/ entrega → Concluído<input maxlength="3" name="autoEntrega" data-mask="int" data-max="3" placeholder="25"></label>
       </div>
 
       <h2>iFood</h2>

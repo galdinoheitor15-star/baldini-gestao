@@ -440,8 +440,8 @@ document.addEventListener('gesturestart', e => e.preventDefault());
       ${o.recompensa ? `<p class="note">🎁 Quer trocar pontos por: ${esc(o.recompensa)}</p>` : ''}
       ${o.cancelMotivo ? `<p class="note">✖ Cancelado: ${esc(o.cancelMotivo)}</p>` : ''}
       ${canPay() ? `<div class="grid3">
-        ${d ? `<label class="field">Taxa de entrega<input data-m="taxa" data-mask="money" value="${money(o.entrega?.taxa)}"></label>` : ''}
-        <label class="field">Desconto<input data-m="desconto" data-mask="money" value="${money(o.desconto)}"></label>
+        ${d ? `<label class="field">Taxa de entrega<input maxlength="16" data-m="taxa" data-mask="money" value="${money(o.entrega?.taxa)}"></label>` : ''}
+        <label class="field">Desconto<input maxlength="16" data-m="desconto" data-mask="money" value="${money(o.desconto)}"></label>
         <div class="total"><span>Total</span><strong>${brl(o.total)}</strong></div>
       </div>` : `<div class="total"><span>Total</span><strong>${brl(o.total)}</strong></div>`}
       <h4>Pagamento ${payBadge(o)}</h4>
@@ -932,7 +932,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
           <div class="grid2">
             <label class="field">Pediu por
               <select id="cmdOrigem"${currentCmd() ? ' disabled' : ''}>${['balcao', 'ifood', 'whatsapp'].map(k => `<option value="${k}"${cmd.origem === k ? ' selected' : ''}>${ORIGEM_LABEL[k]}</option>`).join('')}</select></label>
-            <label class="field">WhatsApp (opcional, para avisar que está pronto)<input id="cmdTel" data-mask="phone" value="${esc(cmd.telefone)}" placeholder="(81) 98790-8900"></label>
+            <label class="field">WhatsApp (opcional, para avisar que está pronto)<input maxlength="15" id="cmdTel" data-mask="phone" value="${esc(cmd.telefone)}" placeholder="(81) 98790-8900"></label>
           </div>` : ''}
           <div class="grid2">
             <label class="field">Nome do cliente${cmd.tipo === 'retirada' ? '' : ' (opcional)'}<input id="cmdNome" maxlength="60" value="${esc(cmd.nome)}" placeholder="Ex.: Ana"></label>
@@ -1116,12 +1116,12 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     $('payBody').innerHTML = `<header class="modal__head"><h2>Fechar conta · ${esc(Core.comandaLabel(c))}${c.nome ? ` <small>${esc(c.nome)}</small>` : ''}</h2><button type="button" class="icon-btn" data-x="close" aria-label="Fechar">✕</button></header>
       <ul class="lines">${c.pedidos.flatMap(o => o.itens || []).map(l => `<li><b>${l.qty}x ${esc(l.name)}</b><span>${brl(l.unit * l.qty)}</span></li>`).join('')}</ul>
       <div class="grid2">
-        <label class="field">Desconto<input data-x="desconto" data-mask="money" value="${payCtx.desconto ? money(payCtx.desconto) : ''}" placeholder="R$ 0,00"></label>
+        <label class="field">Desconto<input maxlength="16" data-x="desconto" data-mask="money" value="${payCtx.desconto ? money(payCtx.desconto) : ''}" placeholder="R$ 0,00"></label>
         <div class="total"><span>Total a receber</span><strong id="billTotal">${brl(total)}</strong></div>
       </div>
       <h4>Como pagou?</h4>
       <div class="paygrid">${['Pix', 'Débito', 'Crédito', 'Dinheiro', ...(c.origem === 'ifood' ? ['iFood'] : [])].map(m => `<button type="button" class="paybtn${payCtx.metodo === m ? ' is-on' : ''}" data-x="metodo" data-p="${m}">${{ Pix: '⚡', 'Débito': '💳', 'Crédito': '💳', Dinheiro: '💵', iFood: '🛵' }[m]} ${m === 'iFood' ? 'Pago no iFood' : m}</button>`).join('')}</div>
-      ${payCtx.metodo === 'Dinheiro' ? `<div class="grid2"><label class="field">Valor recebido<input data-x="recebido" data-mask="money" value="${payCtx.recebido ? money(payCtx.recebido) : ''}" placeholder="R$ 0,00"></label>
+      ${payCtx.metodo === 'Dinheiro' ? `<div class="grid2"><label class="field">Valor recebido<input maxlength="16" data-x="recebido" data-mask="money" value="${payCtx.recebido ? money(payCtx.recebido) : ''}" placeholder="R$ 0,00"></label>
         <div class="total"><span>Troco</span><strong id="billTroco">${brl(troco)}</strong></div></div>` : ''}
       ${payCtx.metodo && !['Dinheiro', 'iFood'].includes(payCtx.metodo) ? `<p class="muted small">Na maquininha: digite <b class="big">${brl(total)}</b></p>` : ''}
       <footer class="modal__foot"><button type="button" class="btn btn--ghost" data-x="close">Voltar</button>
@@ -1355,10 +1355,10 @@ document.addEventListener('gesturestart', e => e.preventDefault());
         return `<div class="mrow${p.oculto ? ' is-off' : ''}" data-mid="${esc(p.id)}">
           <span class="mrow__name">${p.novo ? `<input data-k="nome" value="${esc(p.name)}" maxlength="80" aria-label="Nome do produto">` : esc(p.name)}
             <small>${p.novo ? '<span class="tag tag--ok">novo</span> ' : ''}${p.oculto ? '<span class="tag">escondido</span> ' : ''}${mudou ? `<span class="muted">antes ${brl(base.price)}</span>` : ''}</small></span>
-          ${usaOpcoes ? '<span class="muted small">preço nas opções ↓</span>' : `<label class="mrow__price">R$<input data-k="preco" data-mask="money" value="${money(p.price)}" aria-label="Preço de ${esc(p.name)}"></label>`}
+          ${usaOpcoes ? '<span class="muted small">preço nas opções ↓</span>' : `<label class="mrow__price">R$<input maxlength="16" data-k="preco" data-mask="money" value="${money(p.price)}" aria-label="Preço de ${esc(p.name)}"></label>`}
           <label class="check mrow__on"><input type="checkbox" data-k="on"${p.oculto ? '' : ' checked'}> No cardápio</label>
           ${p.novo ? '<button type="button" class="link" data-k="del" title="Apagar produto novo">Apagar</button>' : '<span></span>'}
-          ${opts.length ? `<details class="mrow__opts"${usaOpcoes ? '' : ''}><summary>Preços das opções</summary>${opts.map((g, gi) => `<p class="muted small">${esc(g.name)}</p>${g.options.map(o => `<label class="crow"><span>${esc(o.name)}</span><input data-k="opt" data-opt="${esc(o.name)}" data-mask="money" value="${money(o.price)}"></label>`).join('')}`).join('')}</details>` : ''}
+          ${opts.length ? `<details class="mrow__opts"${usaOpcoes ? '' : ''}><summary>Preços das opções</summary>${opts.map((g, gi) => `<p class="muted small">${esc(g.name)}</p>${g.options.map(o => `<label class="crow"><span>${esc(o.name)}</span><input maxlength="16" data-k="opt" data-opt="${esc(o.name)}" data-mask="money" value="${money(o.price)}"></label>`).join('')}`).join('')}</details>` : ''}
         </div>`;
       }).join('')}</div>`;
     }).join('') || '<p class="muted small">Nenhum produto encontrado.</p>';
@@ -1534,8 +1534,8 @@ document.addEventListener('gesturestart', e => e.preventDefault());
     const c = state.cfg.custos;
     const extras = new Set();
     MENU.forEach(cat => cat.items.forEach(p => (p.groups || []).forEach(g => { if (/adicional/i.test(g.name)) g.options.forEach(o => extras.add(o.name.replace(/\s*\(extra\)/i, ''))); })));
-    $('costList').innerHTML = MENU.map(cat => `<h4>${esc(cat.name)}</h4>${cat.items.map(p => `<label class="crow"><span>${esc(p.name)} <small class="muted">${p.price ? brl(p.price) : ''}</small></span><input data-cost="${p.id}" data-mask="money" placeholder="R$ 0,00" value="${c[p.id] ? money(c[p.id]) : ''}"></label>`).join('')}`).join('') +
-      `<h4>Adicionais</h4>${[...extras].map(n => `<label class="crow"><span>${esc(n)}</span><input data-cost="opt:${esc(n)}" data-mask="money" placeholder="R$ 0,00" value="${c['opt:' + n] ? money(c['opt:' + n]) : ''}"></label>`).join('')}`;
+    $('costList').innerHTML = MENU.map(cat => `<h4>${esc(cat.name)}</h4>${cat.items.map(p => `<label class="crow"><span>${esc(p.name)} <small class="muted">${p.price ? brl(p.price) : ''}</small></span><input maxlength="16" data-cost="${p.id}" data-mask="money" placeholder="R$ 0,00" value="${c[p.id] ? money(c[p.id]) : ''}"></label>`).join('')}`).join('') +
+      `<h4>Adicionais</h4>${[...extras].map(n => `<label class="crow"><span>${esc(n)}</span><input maxlength="16" data-cost="opt:${esc(n)}" data-mask="money" placeholder="R$ 0,00" value="${c['opt:' + n] ? money(c['opt:' + n]) : ''}"></label>`).join('')}`;
   }
   $('saveCosts').addEventListener('click', () => {
     const custos = {};
@@ -1565,7 +1565,7 @@ document.addEventListener('gesturestart', e => e.preventDefault());
   // ---------- Configurações ----------
   function renderConfig() {
     const f = $('configForm').elements, l = state.cfg.loja, nf = state.cfg.nf;
-    $('feeFields').innerHTML = Object.entries(taxas()).map(([k, v]) => `<label class="field">${k}<input data-fee="${k}" data-mask="percent" value="${String(v).replace('.', ',')}"></label>`).join('');
+    $('feeFields').innerHTML = Object.entries(taxas()).map(([k, v]) => `<label class="field">${k}<input maxlength="6" data-fee="${k}" data-mask="percent" value="${String(v).replace('.', ',')}"></label>`).join('');
     f.mesas.value = l.mesas || '';
     f.infinitepayHandle.value = l.infinitepayHandle || '';
     f.pagamentoOnline.checked = !!l.pagamentoOnline;
